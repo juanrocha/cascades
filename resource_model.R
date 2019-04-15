@@ -13,13 +13,13 @@ library(rEDM)
 resource <- function(t, R, param){
     with(as.list(R), {
         growth <- alpha * R * (R - c_allee)*(1-(R/K))
-        
+
         ## For exmports and imports, I assume delta is 1 and K_L (demand by population) is also 1
-        exports <- delta * (t(C_ij) * t(A_ij)) %*% R 
+        exports <- delta * (t(C_ij) * t(A_ij)) %*% R
         imports <- delta *(C_ij * A_ij) %*% R
-        
+
         dR <- growth  - exports + imports + rnorm(n=n, mean = 0, sd = 1)
-        return(list(dR))
+        return(list(dR, exports, imports))
     })
 }
 
@@ -40,7 +40,7 @@ diag(A_ij) <- 0
 
 delta <-  1 # resource depletion coefficient (I dont' get why is necessary)
 
-times <- seq(from = 0, to = 100, by = 0.01) 
+times <- seq(from = 0, to = 100, by = 0.01)
 params <- list(alpha = alpha, c_allee = c_allee, K = K, C_ij = C_ij)
 
 print(system.time(
@@ -49,7 +49,7 @@ print(system.time(
 
 
 df <- out %>% as_data_frame() %>%
-    gather(key = "species", value = "population", 2:(n+1)) 
+    gather(key = "species", value = "population", 2:(n+1))
 
 
 ## plot result
@@ -79,6 +79,3 @@ ind <- crossing(
     target_column = colnames(out)[-1])
 
 ind <- ind %>% filter(lib_column != target_column)
-
-
-
