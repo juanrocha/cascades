@@ -58,7 +58,7 @@ df <- out %>% as_data_frame() %>%
 
 
 ## plot result
-quartz(width = 4, height = 4)
+# quartz(width = 4, height = 4)
 df %>%
     ggplot(aes(x=time, y=population)) +
     geom_line(aes(color = species), size = 0.25, show.legend = T) +
@@ -68,20 +68,20 @@ df %>%
 ## follow my own code from 04-DataExploration.R
 ## J190416: It's taking a lot of time to run the algorithms of EDM. One of the issues is that I have in my synthetic data 10000 calculations for 100 years due to the time step of 'times'. Sample that and use a smaller dataset for the causality tests.
 
-df2 <- out[seq(from = 1, to = 10001, by = 10),]
+df2 <- out[seq(from = 1, to = 10001, by = 100),]
 dim(df2)
-lib <- c(1,500)
-pred <- c(501, 1001)
+lib <- c(1,50)
+pred <- c(51, 101)
 ## Embedding dimension:
 # emb <- list()
 # for (i in 2:dim(out)[2]){
 #     emb[[i-1]] <- out[c(1,i)] %>%
 #         simplex()
 # }
-simplex_output <- out %>%
+simplex_output <- df2 %>%
     as.data.frame() %>%
     select(-time) %>%
-    map(simplex, lib, pred, E=seq(from = 10, to = 100, by = 10))
+    map(simplex, lib, pred, E=seq(from = 1, to = 10, by = 1))
 
 bestE <- simplex_output %>% map_dbl(~ .$E[which.max(.$rho)] )
 
@@ -97,10 +97,10 @@ simplex_output %>%
   theme_light(base_size = 9)
 
 ## Prediction decay
-prediction_decay <- out %>%
+prediction_decay <- df2 %>%
   as.data.frame() %>%
   select(-time) %>%
-  map(simplex, lib, pred, E = 1, tp = seq(1,50,by= 5))
+  map(simplex, lib, pred, E = 1, tp = seq(1,10,by= 1))
 
 for (i in seq_along(sps)){prediction_decay[[i]]$species <- sps[i]}
 
@@ -112,11 +112,11 @@ prediction_decay %>%
   theme_light(base_size = 9)
 
 ## Non-linearity
-non_linear <- out %>%
+non_linear <- df2 %>%
   as.data.frame() %>%
   select(-time) %>%
   as.list() %>%
-  map(., .f = s_map, E = 10, lib = lib, pred = pred) # this takes ages.
+  map(., .f = s_map, E = 3, lib = lib, pred = pred) # this takes ages.
 
 ## does not work with map2 - for now fixing E = 2
 ## J190416: Note that E is a list or vector on which the function also parellize, so it has to be before the .function declaration.
@@ -139,15 +139,34 @@ ind <- crossing(
 
 ind <- ind %>% filter(lib_column != target_column)
 
-rho_list <- map2(
+## test: about 2mins for one relationship. For a small model with 5sp we have 20 relationships.
+print(system.time(  
+  test_x <- ccm(
+    block = df2, E = 10, lib = lib, pred = pred, 
+    lib_column = 3, target_column = 4,
+    lib_sizes = seq(100, dim(df2)[1], by = 100),
+    first_column_time = TRUE,
+    replace = FALSE, silent = TRUE,
+    random_libs = TRUE,
+    stats_only = FALSE)
+  )
+)
+
+
+### parallel predicting all species
+
+print(system.time(  
+  rho_list <- map2(
     .x = ind$lib_column, .y = ind$target_column ,
-    .f = ~ ccm(block = df2, E = 2,
-        lib_column = .x, target_column = .y,
-        lib_sizes = seq(10, dim(df2)[1], by = 10),
-        first_column_time = TRUE,
-        replace = FALSE, silent = TRUE,
-        random_libs = FALSE)
-    )
+    .f = ~ ccm(block = df2, E = 10,
+               lib_column = .x, target_column = .y,
+               lib_sizes = seq(100, dim(df2)[1], by = 100),
+               first_column_time = TRUE,
+               replace = FALSE, silent = TRUE,
+               random_libs = FALSE)
+  )
+))
+
 
 ## t-test for each relationship:
 t_tests <- map(.x = rho_list, safely(
@@ -185,3 +204,15 @@ ind %>% select(1,2, detection) %>% spread(key =  lib_column, value = detection)
 
 ## It doesn't work.
 ## I think I have the math of the model wrong. If it's a model of difussion given state variables (species / countries) and what defines the difussion is the adjacency matrix, then the model should be a PDE not a ODE. In the deSolve tutorial there is a PDE example that finishes in <1sec with 2000 state vars, why mine with 5 takes longer?
+
+##############3
+## Block model
+#############3
+
+
+
+
+
+
+
+
