@@ -98,14 +98,18 @@ ind <- crossing(
 
 ind <- ind %>% filter(lib_column != target_column)
 
-rho_list <- map2(
-    .x = ind$lib_column, .y = ind$target_column ,
-    .f = ~ ccm(block = df2, E = 11,
-               lib_column = .x, target_column = .y,
-               lib_sizes = seq(10, dim(df2)[1], by = 10),
-               first_column_time = TRUE,
-               replace = TRUE, silent = FALSE,
-               random_libs = TRUE)
+print(system.time(  
+    rho_list <- map2(
+        .x = ind$lib_column, .y = ind$target_column ,
+        .f = ~ ccm(
+            block = df2, E = 11, lib = lib, pred = pred, 
+            lib_column = .x, target_column = .y,
+            lib_sizes = seq(10, dim(df2)[1], by = 100),
+            first_column_time = TRUE,
+            replace = TRUE, silent = FALSE,
+            random_libs = TRUE)
+        )
+    )
 )
 
 ## t-test for each relationship:
@@ -116,7 +120,7 @@ t_tests <- map(.x = rho_list, safely(
 # p_vals <- map(t_tests, function(x) x$result$p.value)
 t_tests <- transpose(t_tests)
 fail <- t_tests$error %>% map_lgl(is_null) %>% unlist()
-
+fail
 ind <- ind %>%
     mutate(
         rho = map_dbl(.x = rho_list, .f = ~ mean(.x$rho, na.rm = TRUE)),
@@ -130,7 +134,10 @@ ind
 
 
 ### J190416: So it does not work. At least not the pair-wise brute force computation. 
-#Takes ages and does not produce anything reliable.
+# Takes ages and does not produce anything reliable. Out of the 5 links it needs to predict
+# 3 were correct, one incorrect (direcition) and one missing (non-detected). Remember, ccm results
+# are read in the opposite direction of causation. the lib_column predicts the target_column, so lib_col 
+# has information about target_col, meaning that target_col causes lib-col.
 
 
 block <- df2 %>% make_block()
@@ -138,7 +145,7 @@ block <- df2 %>% make_block()
 block_output <- block_lnlp(
     block,
     lib = c(1,500), pred = c(501, 1001),
-    columns = c("X", "Y", "Z"), target_column = "Z",
+    columns = c("X", "Y", "Z"), target_column = "Z", ## you can change the target column and re run the chunk
     method = "s-map", theta = 2, stats_only = FALSE,
     first_column_time = TRUE, save_smap_coefficients = TRUE, silent = FALSE
 )
@@ -169,3 +176,5 @@ block_output$model_output[[1]] %>% ggplot(aes(obs,pred)) +
 ## the coeffs show some variables are stronger than others over time, but there is no yes/no test.
 ## the algorith is good at prediction.
 
+# my guess, assuming hte ordering of columns follows the plot.
+colMeans(smap_coeffs, na.rm = TRUE)

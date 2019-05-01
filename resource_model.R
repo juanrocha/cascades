@@ -19,12 +19,15 @@ resource <- function(t, R, param){
         exports <- delta * (t(C_ij) * t(A_ij)) %*% R
         imports <- delta *(C_ij * A_ij) %*% R
 
-        dR <- growth  - exports + imports + rnorm(n=n, mean = 0, sd = 1)
+        dR <- growth  - exports + imports #+ rnorm(n=n, mean = 0, sd = 1)
         return(list(dR)) #,  exports, imports
     })
 }
 
-## J190415: Don't add exports and imports yet because in the model they are not modeled pair-wise, they are agregated. One would need to dissagregate or store the matrix instead of the vector. Where the vector now is the sum of the exports per species/country, while the matrix is the raw values.
+## J190415: Don't add exports and imports yet because in the model they are not 
+# modeled pair-wise, they are agregated. One would need to dissagregate or store
+# the matrix instead of the vector. Where the vector now is the sum of the exports 
+# per species/country, while the matrix is the raw values.
 
 
 n <- 5 ## number of countries and resources
@@ -33,10 +36,10 @@ alpha <- runif(n, 0.01, 0.1) ## growth rate
 c_allee <- runif(n, 10, 30) ## Allee parameter: food necessary to feed L_i population in country i
 K <- rep(100, times = n) ## carrying capacity
 
-C_ij <- matrix(runif(n^2, min = 0, max = 0.5), ncol = n)
+C_ij <- matrix(runif(n^2, min = 0.2, max = 0.8), ncol = n)
 diag(C_ij) <- 0
 
-A_ij <- matrix(rbinom(n^2, 1, prob = 0.25), ncol = n)
+A_ij <- matrix(rbinom(n^2, 1, prob = 0.5), ncol = n)
 diag(A_ij) <- 0
 
 delta <-  1 # resource depletion coefficient (I dont' get why is necessary)
@@ -64,9 +67,14 @@ df %>%
     geom_line(aes(color = species), size = 0.25, show.legend = T) +
     theme_light()
 
+image(t(C_ij * A_ij))
+
+
 ## Test of CCM as identification method:
 ## follow my own code from 04-DataExploration.R
-## J190416: It's taking a lot of time to run the algorithms of EDM. One of the issues is that I have in my synthetic data 10000 calculations for 100 years due to the time step of 'times'. Sample that and use a smaller dataset for the causality tests.
+## J190416: It's taking a lot of time to run the algorithms of EDM. One of the 
+# issues is that I have in my synthetic data 10000 calculations for 100 years due
+# to the time step of 'times'. Sample that and use a smaller dataset for the causality tests.
 
 df2 <- out[seq(from = 1, to = 10001, by = 100),]
 dim(df2)
@@ -100,7 +108,7 @@ simplex_output %>%
 prediction_decay <- df2 %>%
   as.data.frame() %>%
   select(-time) %>%
-  map(simplex, lib, pred, E = 1, tp = seq(1,10,by= 1))
+  map(simplex, lib, pred, E = 1, tp = seq(1,20,by= 1))
 
 for (i in seq_along(sps)){prediction_decay[[i]]$species <- sps[i]}
 
@@ -143,12 +151,12 @@ ind <- ind %>% filter(lib_column != target_column)
 print(system.time(  
   test_x <- ccm(
     block = df2, E = 10, lib = lib, pred = pred, 
-    lib_column = 3, target_column = 4,
-    lib_sizes = seq(100, dim(df2)[1], by = 100),
+    lib_column = 3, target_column = 4, num_neighbors = 0.5,
+    lib_sizes = seq(11, dim(df2)[1], by = 10),
     first_column_time = TRUE,
-    replace = FALSE, silent = TRUE,
-    random_libs = TRUE,
-    stats_only = FALSE)
+    replace = TRUE, silent = TRUE,
+    random_libs = TRUE, num_samples = 25,
+    stats_only = TRUE)
   )
 )
 
@@ -158,12 +166,14 @@ print(system.time(
 print(system.time(  
   rho_list <- map2(
     .x = ind$lib_column, .y = ind$target_column ,
-    .f = ~ ccm(block = df2, E = 10,
-               lib_column = .x, target_column = .y,
-               lib_sizes = seq(100, dim(df2)[1], by = 100),
-               first_column_time = TRUE,
-               replace = FALSE, silent = TRUE,
-               random_libs = FALSE)
+    .f = ~ ccm(
+      block = df2, E = 5, lib = lib, pred = pred, 
+      lib_column = .x, target_column = .y,
+      lib_sizes = seq(11, dim(df2)[1], by = 10),
+      first_column_time = TRUE, #num_neighbors = 0.5,
+      replace = TRUE, silent = TRUE,
+      random_libs = FALSE, num_samples = 30,
+      stats_only = TRUE)
   )
 ))
 
@@ -175,14 +185,15 @@ t_tests <- map(.x = rho_list, safely(
 
 # p_vals <- map(t_tests, function(x) x$result$p.value)
 t_tests <- transpose(t_tests)
-fail <- t_tests$error %>% map_lgl(is_null) %>% unlist()
+fail <- t_tests$error %>% map_lgl(is_null) %>% unlist() ## should be TRUE for all
+fail
 
 ind <- ind %>%
   mutate(
       rho = map_dbl(.x = rho_list, .f = ~ mean(.x$rho, na.rm = TRUE)),
       rho_t = map_dbl(.x = t_tests$result, function(x) x$estimate ),
       p_value = map_dbl(.x = t_tests$result, function(x) x$p.value ),
-      detection = ifelse(p_value <0.05 & rho > 0.1, TRUE, FALSE)
+      detection = ifelse(p_value <0.05 & rho > 0.05, TRUE, FALSE)
   )
 
 ind$p_value < 0.05
@@ -190,20 +201,23 @@ ind$p_value < 0.05
 ### So the million dollar question: Can I recover the adjacency matrix?
 
 ind %>%
-  ggplot(., aes(target_column, lib_column)) +
-  geom_tile(aes(fill = detection)) +
+  ggplot(., aes(lib_column, target_column)) +
+  geom_tile(aes(fill = detection)) + 
   theme_light(base_size = 9)
 
 quartz(width = 4, height =4)
 image(A_ij)
 
-C_ij * A_ij %>% round(., 2)
+round(C_ij * A_ij, 2)
 
 
 ind %>% select(1,2, detection) %>% spread(key =  lib_column, value = detection)
 
 ## It doesn't work.
-## I think I have the math of the model wrong. If it's a model of difussion given state variables (species / countries) and what defines the difussion is the adjacency matrix, then the model should be a PDE not a ODE. In the deSolve tutorial there is a PDE example that finishes in <1sec with 2000 state vars, why mine with 5 takes longer?
+## I think I have the math of the model wrong. If it's a model of difussion given 
+# state variables (species / countries) and what defines the difussion is the adjacency matrix
+# then the model should be a PDE not a ODE. In the deSolve tutorial there is a 
+# PDE example that finishes in <1sec with 2000 state vars, why mine with 5 takes longer?
 
 ##############3
 ## Block model
