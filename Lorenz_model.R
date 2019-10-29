@@ -36,6 +36,16 @@ dim(df2)
 lib <- c(1,500)
 pred <- c(501, 1001)
 
+## Normalize the time series:
+normalize <- function(x){
+    y <- (x - mean(x, na.rm = TRUE))/sd(x, na.rm = TRUE)
+    return(y)
+}
+
+
+df2[,2:4] <- apply(df2[,2:4], 2, normalize)
+
+
 ## embeding
 emb <- df2 %>%
     as.data.frame() %>%
@@ -178,3 +188,6 @@ block_output$model_output[[1]] %>% ggplot(aes(obs,pred)) +
 
 # my guess, assuming hte ordering of columns follows the plot.
 colMeans(smap_coeffs, na.rm = TRUE)
+
+
+save(out, df2, ind, file = "lorenz_experiments_ccm.RData")

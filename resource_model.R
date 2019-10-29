@@ -10,7 +10,6 @@ library(deTestSet)
 library(rEDM)
 
 ## model
-
 resource <- function(t, R, param){
     with(as.list(R), {
         growth <- alpha * R * (R - c_allee)*(1-(R/K))
@@ -19,7 +18,7 @@ resource <- function(t, R, param){
         exports <- delta * (t(C_ij) * t(A_ij)) %*% R
         imports <- delta *(C_ij * A_ij) %*% R
 
-        dR <- growth  - exports + imports #+ rnorm(n=n, mean = 0, sd = 1)
+        dR <- growth  - exports + imports + rnorm(n=n, mean = 0, sd = 1)
         return(list(dR)) #,  exports, imports
     })
 }
@@ -86,6 +85,18 @@ pred <- c(51, 101)
 #     emb[[i-1]] <- out[c(1,i)] %>%
 #         simplex()
 # }
+
+## Normalize the time series:
+normalize <- function(x){
+  y <- (x - mean(x, na.rm = TRUE))/sd(x, na.rm = TRUE)
+  return(y)
+}
+
+
+df2[,-1] <- apply(df2[,-1], 2, normalize)
+
+
+
 simplex_output <- df2 %>%
     as.data.frame() %>%
     select(-time) %>%
@@ -218,6 +229,9 @@ ind %>% select(1,2, detection) %>% spread(key =  lib_column, value = detection)
 # state variables (species / countries) and what defines the difussion is the adjacency matrix
 # then the model should be a PDE not a ODE. In the deSolve tutorial there is a 
 # PDE example that finishes in <1sec with 2000 state vars, why mine with 5 takes longer?
+
+save(out, df, df2, rho_list, ind, A_ij, C_ij,file = "resource_model_experiment.RData")
+
 
 ##############3
 ## Block model
