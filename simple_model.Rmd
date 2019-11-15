@@ -86,3 +86,239 @@ How can we use this framework to investigate the diffusion patterns of regime sh
 
 To investigate the equilibrium and stability properties of this system we first normalise the units of the equation to minimize the number of parameters. 
 
+$$ \forall i \in \{1, ..., n\}; \frac{dx_i}{dt} = 
+r_i x_i \left( 1 - \frac{x_i}{k_i} \right) - 
+c_i \frac{x_{i}^{a_i}}{q_{i}^{a_i} + x_{i}^{a_i}} +
+\sum_{j \neq i} d_{ij}(x_j - x_i)
+$$
+
+Let $X_i = \frac{x_i}{q_i}$
+
+
+ASC: Tedious calcuation steps no need to read except for verifying that it is correct, then $\forall i \in \{1,...,n\}$
+
+$$
+\frac{dX_i}{d\tau} = \frac{dX_i}{dx_i} \frac{dx_i}{dt} \frac{dt}{d\tau} =
+\frac{dX_i}{dx_i}  \frac{dt}{d\tau} \left( r_i q_i X_i \left( 1 - \frac{q_i X_i}{k_i} \right) -
+k_i \frac{(q_i X_i)^{a_i}}{q_{i}^{a_i} + (q_i X_i)^{a_i}} + 
+\sum_{j \neq i} d_{ij}(q_j X_j - q_i X_i) \right)
+$$
+
+$$
+= \frac{1}{q_i} \frac{dt}{d\tau} \left(r_i q_i X_i \left( 1 - \frac{q_i X_i}{k_i} -
+c_i \frac{(X_i)^{a_i}}{1+ (X_i)^{a_i}} +
+\sum_{j \neq i} d_{ij}(q_j X_j - q_i X_i) 
+\right) \right) 
+$$
+
+Now we choose the time scale of $X_i$ so that $\frac{dt}{d\tau} = \frac{1}{\tau}$
+
+$$
+\frac{dX_i}{d\tau} = \frac{r_i}{r} X_i \left(1- \frac{q_i X_i}{k_i}\right) - \frac{c_i}{rq_i}
+\frac{(X_i)^{a_i}}{1+ (X_i)^{a_i}} +
+\sum_{j \neq i} \frac{d_{ij}}{r} \left(\frac{q_j}{q_i}X_j - X_i \right)
+$$
+
+End of calculation.
+
+Now let $K_i = \frac{k_i}{q_i}; C_i = \frac{c_i}{rq_i} ; R_i = \frac{r_i}{r}; Q_i = \frac{q_j}{q_i}$ and $D_{ij}= \frac{d_{ij}}{r}$ , we obtain
+
+$$
+\frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i}\right) -
+C_i\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
+\sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
+$$
+
+Then we can characterise its equilibria
+
+$$
+\forall i \in \{1, \ldots, n\}; \frac{dX_i}{d\tau} = 0
+$$
+
+$$\Leftrightarrow C_i \frac{X_i^{a_i}}{1+ X_i^{a_i}} = 
+R_i X_i \left(1 - \frac{X_i}{K_i} \right) +
+\sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
+$$
+
+$$
+\Leftrightarrow C_i \frac{X_i^{a_i}}{1+ X_i^{a_i}} = \left(R_i - \sum_{j \neq i}D_{ij} \right)X_i -
+\frac{R_i (X_i)^2}{K_i} + 
+\sum_{j \neq i}D_{ij}Q_j X_j 
+$$
+
+While an analytical solution is probably not available, the equilibria can be characterised analytically as the intersections of the graphs of two functions. The left hand side is very similar to the one in the pollution case except that the asymptote occurs at $C_i$ instead of $v_i$ and the inflection point is at 1. The right hand side is a concave function with value 
+
+$$D = \sum_{j = 1, j \neq i}^{n} D_{ij}Q_jX_j$$
+at the origin and at 
+
+$$X_i = K_i \left(\frac{R_i - \sum_{j \neq i}D_{ij}}{R_i} \right) $$
+It has a  maximum of $\frac{R_i K_i}{4} \left( \frac{R_i - \sum_{j \neq i} D_{ij}}{R_i} \right) ^2 + D$ at $X_i = \frac{K_i}{2R_i} \left( \frac{R_i - \sum_{j \neq i} D_{ij}}{R_i} \right)$ and reaches value $0$ for 
+
+$$X_i = \frac{K_i}{2R_i} \left( R_i = \sum_{j \neq i}D_{ij} + 
+\sqrt{\left( R_i - \sum_{j \neq i}D_{ij} \right)^2 + 4\frac{R_iD}{K_i}} \right) $$
+
+Can we say more?
+
+- For example we can say that $\frac{R_i - \sum_{j \neq i}D_{ij}}{R_i} \le 1$ implying that $K_i \left(\frac{R_i - \sum_{j \neq i}D_{ij}}{R_i} \right)  \le K_i$
+- Do we need that $0 \le R_i - \sum_{j \neq i}D_{ij}{R_i}$ ? this is the case when the intrisinc growth rate in one patch is always larger than the sum of all outflow rates from taht patch. Intuitively this needs not necessarily be the case particularly if the inflow to that patch is large. We could distinguish between net sources and net receivers.
+- We seem to have two caseds depending on whether or not $R_i K_i (1 - \frac{K_i}{K_i}) + \sum_{j=1, j \neq i}^{n} D_{ij}(Q_j X_j - K_i) \ge 0$. This defines a threshold value for D:
+    - $\bar{D} = K_i \sum_{j=1, j \neq i} D_{ij}$ for $D > \bar{D}$, the curve cuts the $X_i$ axis above $K_i$ while for 
+    - $D< \bar{D}$, it cuts the $X_i$ axis below $K_i$.
+- We have also two cases depending on whether $\frac{R_i K_i}{4} \left( \frac{R_i - \sum_{j \neq i}D{ij}}{R_i} \right)^2 + D > \frac{R_iK_i}{4}$ or not. And the limit case when they are equal. Define this limit value of the sum of outflows to all other patches $\hat{D}$ as
+
+$$\frac{R_i K_i}{4}  \left( \frac{R_i - \sum_{j \neq i}D{ij}}{R_i} \right)^2 + D > \frac{R_iK_i}{4} 
+\Leftrightarrow +D > \frac{R_i K_i}{4}-\frac{R_i K_i}{4}  \left( \frac{R_i - \sum_{j \neq i}D{ij}}{R_i} \right)^2 
+\equiv \hat{D}
+$$
+How do $\hat{D}$ and $\bar{D}$ relate to each other?
+
+ASC did some simulations in Matematica that I here try to replicate in `R`.
+First I load some libraries necesary for solving the model numerically and plotting:
+
+```{r libraries, warning=FALSE, message=FALSE}
+library(deSolve)
+library(deTestSet)
+library(tidyverse)
+```
+
+The replicated model is: 
+
+$$
+\frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i}\right) -
+C_i\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
+\sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
+$$
+
+where the initial conditions are:
+
+```{r initial_conditions}
+## Parameters
+R <- 0.8        # Growth rate
+K <- 10         # carryng capacity
+delta <- 0.05   # share of stock that diffuses to other plots
+a <- 4          # maximum level after crossing the threshold
+c <- 1.7
+d <- 0.2        # total diffiusion from all other plots to i
+Dij <- matrix(c(0, delta, d, 0), nrow = 2, byrow = FALSE)
+
+## Initial conditions:
+X <- c(5,5)     # 2 resources with X_0 = 5
+
+```
+then we specify the model with two stocks, so we can make use of the difference between `delta` and `d` parameters:
+
+```{r}
+resource <- function(t,y, params){
+    with(as.list(y), {
+        growth <- R*X*(1-(X/K))
+        consumption <- c *((X^a) / (1 + (X^a) ))
+        
+        emmigration <-  t(Dij) %*% X
+        immigration <-  Dij %*% X
+    
+        dX <- growth - consumption + (immigration - emmigration)
+        
+    return(list(c(dX)))
+    })
+}
+```
+Now ready to run the model:
+
+```{r}
+## set up time steps
+times <- seq(from = 0, to = 100, by = 0.01)
+## declare parameters
+params <- list(a = a, R = R, K = K, c = c, Dij = Dij)
+
+## run the model
+print(system.time(
+    out <- ode(
+      y = X, times = times, parms = params, func = resource,
+      method = "lsodes" ## see help("ode") for more methods
+    )
+))
+
+```
+
+```{r warning=FALSE, message=FALSE}
+n <- 2
+df <- out %>% as_tibble() %>%
+    gather(key = "species", value = "population", 2:(n+1))
+
+```
+Plot results:
+```{r}
+df %>%
+    ggplot(aes(x=time, y=population)) +
+    geom_line(aes(color = species), size = 0.25, show.legend = T) +
+    theme_light()
+```
+
+Not the expected result. Here is another model that I've worked with to test connections between resources that show a bit better the type of expected results. It is based on the paper by Tu et al [Impact of globalization on the resilience and sutaianbility of natural resources](https://www.nature.com/articles/s41893-019-0260-z). Their master equation is:
+
+$$\frac{dR_i}{dt} = a_i R_i (R_i - c_i) \left(1- \frac{R_i}{K_i^{R}} \right) - (E_i - I_i)$$
+
+where $a_i > 0$ is an intrinsic growth parameter, $K_i$ is the carrying capacity, $c_i$ accounts for the Allee effect ($K_i^R > c_i > 0$), which allows for the existence of two alternative equilibria. $E_i, I_i$ are exports and imports of resouces and depend on a delta parameter, a demand parameter proportional to population in the j node, the carrying capacity of the j node, and the adjacency matrix that determines which nodes are connected. My translation of their model to `R`:
+
+```{r}
+## model
+resource <- function(t, R, param){
+    with(as.list(R), {
+        growth <- alpha * R * (R - c_allee)*(1-(R/K))
+
+        ## For exmports and imports, I assume delta is 1 and K_L (demand by population) is also 1
+        exports <- delta * (t(C_ij) * t(A_ij)) %*% R
+        imports <- delta *(C_ij * A_ij) %*% R
+
+        dR <- growth  - exports + imports + rnorm(n=n, mean = 0, sd = 1)
+        return(list(dR)) #,  exports, imports
+    })
+}
+```
+
+```{r}
+## Parameters
+n <- 5                  ## number of countries and resources
+R <- runif(n, 10, 100)  ## 10 resources with random numbers
+alpha <- runif(n, 0.01, 0.1) ## growth rate
+c_allee <- runif(n, 10, 30) ## Allee parameter: food necessary to feed L_i population in country i
+K <- rep(100, times = n) ## carrying capacity
+
+C_ij <- matrix(runif(n^2, min = 0.2, max = 0.8), ncol = n)
+diag(C_ij) <- 0
+
+A_ij <- matrix(rbinom(n^2, 1, prob = 0.5), ncol = n)
+diag(A_ij) <- 0
+
+delta <-  1 # resource depletion coefficient (I dont' get why is necessary)
+
+## setting up 
+times <- seq(from = 0, to = 100, by = 0.01)
+params <- list(alpha = alpha, c_allee = c_allee, K = K, C_ij = C_ij)
+
+```
+```{r}
+## run the model
+print(system.time(
+    out <- ode(
+      y = R, times = times, parms = params, func = resource,
+      method = "lsodes" ## see help("ode") for more methods
+    )
+))
+
+```
+
+```{r warning=FALSE, message=FALSE}
+# Gather results and plot
+df <- out %>% as_tibble() %>%
+    gather(key = "species", value = "population", 2:(n+1))
+
+
+## plot result
+df %>%
+    ggplot(aes(x=time, y=population)) +
+    geom_line(aes(color = species), size = 0.25, show.legend = T) +
+    theme_light()
+
+```
+
