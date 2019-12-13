@@ -1,6 +1,10 @@
 ---
 title: "Simple model of interaction between resource and pollution systems"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
 ---
 
 Note: this text comes from our working document on the google doc. I'm pasting here as a test of a working document that both Anne-Sophie and Juan can edit online. Inserting equations should be as easy as in $\LaTeX$. 
@@ -15,7 +19,7 @@ First we present the two models in more detail and then we study the implication
 
 Let $y_i$ denote a stock of pollutant in a recipient $i$ among $n$ recipients (e.g. nutrients in surface water of a lake). Let $u_i$ denote the loading of pollutants from human activities to the recipient $i$. The term $v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}}$
 
-represents some kind of saturation term, which can generate nutrient release within the recipient (e.g. from the bottom sediment of a lake for water pollution or from the ocean or soil for atmospheric pollution like methane from melting permafrost). For low nutrient levels, the release is minimal but above some threshold $Y$ the system flips to a high release level. The term $v_{i}$ is the maximum level of internal nutrient release and the parameter $\beta_{i}$ indicates the sharpness of the shift. The highest this parameter is the sharpest the shift. For values close to $1$ the shift is smooth. The terms $\Delta_{ij}$ represent the diffusion of pollution between patch $i$ and some other patch $j$. It is the share of the pollution differential between the two recipients that actually moves between the two patches. The direction of motion will depend on which of the patches i andjhas the highest density (the sign of $(y_j-y_i)$).
+represents some kind of saturation term, which can generate nutrient release within the recipient (e.g. from the bottom sediment of a lake for water pollution or from the ocean or soil for atmospheric pollution like methane from melting permafrost). For low nutrient levels, the release is minimal but above some threshold $Y$ the system flips to a high release level. The term $v_{i}$ is the maximum level of internal nutrient release and the parameter $\beta_{i}$ indicates the sharpness of the shift. The highest this parameter is the sharpest the shift. For values close to $1$ the shift is smooth. The terms $\Delta_{ij}$ represent the diffusion of pollution between patch $i$ and some other patch $j$. It is the share of the pollution differential between the two recipients that actually moves between the two patches. The direction of motion will depend on which of the patches $i$ and $j$ has the highest density (the sign of $(y_j-y_i)$).
 
 $$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} 
 + \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
@@ -160,8 +164,8 @@ $$X_i = \frac{K_i}{2R_i} \left( R_i = \sum_{j \neq i}D_{ij} +
 Can we say more?
 
 - For example we can say that $\frac{R_i - \sum_{j \neq i}D_{ij}}{R_i} \le 1$ implying that $K_i \left(\frac{R_i - \sum_{j \neq i}D_{ij}}{R_i} \right)  \le K_i$
-- Do we need that $0 \le R_i - \sum_{j \neq i}D_{ij}{R_i}$ ? this is the case when the intrisinc growth rate in one patch is always larger than the sum of all outflow rates from taht patch. Intuitively this needs not necessarily be the case particularly if the inflow to that patch is large. We could distinguish between net sources and net receivers.
-- We seem to have two caseds depending on whether or not $R_i K_i (1 - \frac{K_i}{K_i}) + \sum_{j=1, j \neq i}^{n} D_{ij}(Q_j X_j - K_i) \ge 0$. This defines a threshold value for D:
+- Do we need that $0 \le R_i - \sum_{j \neq i}D_{ij}{R_i}$ ? this is the case when the intrisinc growth rate in one patch is always larger than the sum of all outflow rates from that patch. Intuitively this needs not necessarily be the case particularly if the inflow to that patch is large. We could distinguish between net sources and net receivers.
+- We seem to have two cases depending on whether or not $R_i K_i (1 - \frac{K_i}{K_i}) + \sum_{j=1, j \neq i}^{n} D_{ij}(Q_j X_j - K_i) \ge 0$. This defines a threshold value for D:
     - $\bar{D} = K_i \sum_{j=1, j \neq i} D_{ij}$ for $D > \bar{D}$, the curve cuts the $X_i$ axis above $K_i$ while for 
     - $D< \bar{D}$, it cuts the $X_i$ axis below $K_i$.
 - We have also two cases depending on whether $\frac{R_i K_i}{4} \left( \frac{R_i - \sum_{j \neq i}D{ij}}{R_i} \right)^2 + D > \frac{R_iK_i}{4}$ or not. And the limit case when they are equal. Define this limit value of the sum of outflows to all other patches $\hat{D}$ as
@@ -172,6 +176,9 @@ $$\frac{R_i K_i}{4}  \left( \frac{R_i - \sum_{j \neq i}D{ij}}{R_i} \right)^2 + D
 $$
 How do $\hat{D}$ and $\bar{D}$ relate to each other?
 
+## Simulations
+
+
 ASC did some simulations in Matematica that I here try to replicate in `R`.
 First I load some libraries necesary for solving the model numerically and plotting:
 
@@ -180,6 +187,8 @@ library(deSolve)
 library(deTestSet)
 library(tidyverse)
 ```
+
+### Normalized model
 
 The replicated model is: 
 
@@ -198,25 +207,48 @@ K <- 10         # carryng capacity
 delta <- 0.05   # share of stock that diffuses to other plots
 a <- 4          # maximum level after crossing the threshold
 c <- 1.7
-d <- 0.2        # total diffiusion from all other plots to i
+d <- 0.02        # total diffiusion from all other plots to i
 Dij <- matrix(c(0, delta, d, 0), nrow = 2, byrow = FALSE)
 
 ## Initial conditions:
-X <- c(5,5)     # 2 resources with X_0 = 5
+n <- 2 ## number of cresources
+yini <- runif(n, 8, 20)  
 
 ```
+
+```{r}
+## small dataframe
+df <- tibble( x = rep(0:12, 3))
+## components of the function, with and without difussion
+growth <- function(x) {R*x*(1-(x/K))}
+growth_diffussion <- function(x) {R*x*(1-(x/K)) + d*x - delta *x}
+consumption <- function(x){c *((x^a) / (1 + (x^a) ))}
+## plot
+ggplot(data = df, aes(x)) +
+  stat_function(fun = growth, color = "blue") +
+  stat_function(fun = growth_diffussion, color = "orange") +
+  stat_function(fun = consumption, color = "purple") +
+  geom_hline(yintercept = 0, color = "gray") + 
+  labs(x = "x", y = "f(x)") +
+  theme_light()
+
+```
+
 then we specify the model with two stocks, so we can make use of the difference between `delta` and `d` parameters:
 
 ```{r}
-resource <- function(t,y, params){
-    with(as.list(y), {
-        growth <- R*X*(1-(X/K))
-        consumption <- c *((X^a) / (1 + (X^a) ))
+## The problem with the function I had is that the response variable needs to be 
+## named y inside the function. 
+resource <- function(t, y, params){
+    with(as.list(y, params), {
+        growth <- R * y * (1- y/K)  ## This should recover Lodka-Volterra
+        consumption <- c *((y^a) / (1 + (y^a) ))
         
-        emmigration <-  t(Dij) %*% X
-        immigration <-  Dij %*% X
+        immigration <-  t(Dij) %*% y
+        emmigration <-  Dij %*% y
     
         dX <- growth - consumption + (immigration - emmigration)
+       # dX <- ifelse(dX <= 0, 0, dX) ## Make sure there is no negative abundance
         
     return(list(c(dX)))
     })
@@ -233,7 +265,7 @@ params <- list(a = a, R = R, K = K, c = c, Dij = Dij)
 ## run the model
 print(system.time(
     out <- ode(
-      y = X, times = times, parms = params, func = resource,
+      y = yini, times = times, parms = params, func = resource,
       method = "lsodes" ## see help("ode") for more methods
     )
 ))
@@ -247,12 +279,198 @@ df <- out %>% as_tibble() %>%
 
 ```
 Plot results:
-```{r}
+```{r warning=FALSE, message=FALSE}
 df %>%
     ggplot(aes(x=time, y=population)) +
     geom_line(aes(color = species), size = 0.25, show.legend = T) +
     theme_light()
 ```
+
+Now as expected, the two species reached carrying capacity over time.
+
+
+### Resource model with many species
+
+```{r warning=FALSE, message=FALSE}
+## Initial conditions:
+n <- 5 ## number of resources
+yini <- runif(n, 10, 20)  
+## heterogeneous case
+Dij <- matrix(runif(n^2, min = 0, max = 0.025), ncol = n) # model very sensitive to diffusion
+diag(Dij) <- 0
+
+## Parameters
+params <- list(
+  R = 1,        # Growth rate
+  K = 10,       # carryng capacity
+  a = 4,         # maximum level after crossing the threshold
+  c = 1.7,
+  Dij = Dij
+)
+
+
+## run the model
+print(system.time(
+    out <- ode(
+      y = yini, times = times, parms = params, func = resource,
+      method = "lsoda" ## see help("ode") for more methods
+    )
+))
+
+```
+
+```{r warning=FALSE, message=FALSE}
+out %>%
+  as_tibble() %>% 
+  gather(key = "species", value = "abundance", 2:6) %>%
+  ggplot(aes(time, abundance)) + 
+  geom_line(aes(color = species)) +
+  theme_light()
+```
+
+
+#### Some ideas:
+- Can you modify the model with a ifelse statement to avoid negative values?
+- On the resource only model, how do you induce regime shifts? slow variables, noise? which variables make more sense?
+
+### Pollution model:
+
+$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} 
++ \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
+
+```{r}
+## Pollution model:
+
+pollution <- function(t, y, params){
+  with(as.list(y, params), {
+    pollutant <- u + v * (y^beta/(Y^beta + y^beta))
+    outflow <-  Dij %*% y
+    inflow <-  t(Dij) %*% y
+
+    dy <- pollutant + (inflow - outflow)
+    
+    return(list(c(dy)))
+  })
+}
+
+## set up flux matrix
+n <- 3
+Dij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
+diag(Dij) <- 0
+
+## Parameters
+#params <- list(u = 0.5, v = 1.7, Y = 1, beta = 4, Dij = Dij )
+u <- 0.5
+v <- 1.7
+Y <- 1
+beta <- 4 
+
+yini <- runif(n, 5, 20)
+
+## run the model
+print(system.time(
+    out <- ode(
+      y = yini, times = times, parms = params, func = pollution,
+      method = "lsoda" ## see help("ode") for more methods
+    )
+))
+
+```
+Simulation results:
+```{r warning=FALSE, message=FALSE}
+out %>%
+  as_tibble() %>% 
+  gather(key = "lakes", value = "pollutants", 2:4) %>%
+  ggplot(aes(time, pollutants)) + 
+  geom_line(aes(color = lakes)) +
+  theme_light()
+```
+
+```{r warning=FALSE, message=FALSE}
+## small dataframe
+df <- tibble( x = rep(0:12, 3))
+## components of the function, with and without difussion
+pollutant <- function(y) {u + v * (y^beta/(Y^beta + y^beta))}
+pollutant_diffussion <- function(y) {u + v * (y^beta/(Y^beta + y^beta)) + ((0.01 * y) - (0.05 * y))}
+management <- function(y){u}
+## plot
+ggplot(data = df, aes(x)) +
+  stat_function(fun = pollutant, color = "blue") +
+  stat_function(fun = pollutant_diffussion, color = "orange") +
+  stat_function(fun = management, color = "purple") +
+  geom_hline(yintercept = 0, color = "gray") + 
+  labs(x = "y", y = "f(y)") +
+  theme_light()
+```
+
+
+### Coupled model
+
+#### Scenario 1: The amount of pollution is critical for the carrying capacity of the resource 
+
+```{r}
+
+coupled <- function(t, yini , params){
+  with(as.list(yini, params), {
+    x <- yini[1:3]
+    y <- yini[4:6]
+    
+    dx <- R * x * (1- x/K*(1 - y/100)) - c *((x^a) / (1 + (x^a) )) + ((Dij %*% x)-(t(Dij) %*% x))
+    dy <- u + v * (y^beta/(Y^beta + y^beta)) + ((Aij %*% y)-(t(Aij) %*% y))
+    
+    return(list(c(dx, dy)))
+  })
+}
+
+## set matrixes
+n <- 3
+Dij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
+diag(Dij) <- 0
+Aij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
+diag(Aij) <- 0
+
+## Parameters
+u <- 0.5
+v <- 1.7
+Y <- 1
+beta <- 4 
+R <-  1        # Growth rate
+K <- 10        # carryng capacity
+a <-  4          # maximum level after crossing the threshold
+c <- 1.7
+
+## Initial conditions
+yini <- c(x = c(runif(n, 5, 20)), y = c(runif(n, 3,10)))
+
+## run the model
+print(system.time(
+    out <- ode(
+      y = yini, times = times, parms = NULL, func = coupled,
+      method = "lsodes" ## see help("ode") for more methods
+    )
+))
+```
+
+```{r message=FALSE, warning=FALSE}
+out %>%
+  as_tibble() %>% 
+  gather(key = "species", value = "abundance", 2:7) %>% 
+  mutate(type = str_remove_all(species, "[:digit:]")) %>%
+  filter(time < 35) %>%
+  ggplot(aes(time, abundance)) + 
+  geom_line(aes(color = species)) +
+  facet_wrap(~type, scales = "free") +
+  theme_light()
+```
+
+
+
+
+
+
+
+
+### Resource model from Tu _et al_
 
 Not the expected result. Here is another model that I've worked with to test connections between resources that show a bit better the type of expected results. It is based on the paper by Tu et al [Impact of globalization on the resilience and sutaianbility of natural resources](https://www.nature.com/articles/s41893-019-0260-z). Their master equation is:
 
@@ -322,3 +540,6 @@ df %>%
 
 ```
 
+## Ideas for future analysis
+
+- Couple the resource with pollution systems
