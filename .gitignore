@@ -6,4 +6,6 @@
 *.html
 *.png
 *.pdf
+*.log
+*.tex
 

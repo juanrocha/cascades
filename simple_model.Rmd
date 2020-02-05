@@ -184,7 +184,7 @@ First I load some libraries necesary for solving the model numerically and plott
 
 ```{r libraries, warning=FALSE, message=FALSE}
 library(deSolve)
-library(deTestSet)
+# library(deTestSet)
 library(tidyverse)
 ```
 
