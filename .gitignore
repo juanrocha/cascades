@@ -8,4 +8,5 @@
 *.pdf
 *.log
 *.tex
+.DS_Store
 

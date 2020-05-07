@@ -1,0 +1,72 @@
+---
+title: "Pollution model"
+output: html_notebook
+---
+
+```{r libraries, warning=FALSE, message=FALSE}
+library(deSolve)
+# library(deTestSet)
+library(tidyverse)
+```
+
+
+$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} 
++ \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
+
+```{r}
+
+# This is where we define your event function
+# Add this directly above your call to ode()
+# posfun <- function(t, y, parms){
+#   with(as.list(y), {
+#     y[which(y<0)] <- 0  
+#     return(y)
+#   })
+# }
+
+## Pollution model:
+
+pollution <- function(t, y, params){
+  with(as.list(c(y, params)), {
+    
+    pollutant <- u + v * (y^beta/(Y^beta + y^beta))
+    outflow <-  Dij %*% y
+    inflow <-  t(Dij) %*% y
+
+    dy <- pollutant + (inflow - outflow)
+    
+    return(list(c(dy)))
+  })
+}
+
+## set up flux matrix
+n <- 3
+Dij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
+diag(Dij) <- 0
+
+## Parameters
+#params <- list(u = 0.5, v = 1.7, Y = 1, beta = 4, Dij = Dij )
+params <- list(
+    v = 1.7,
+    u = 0.5,
+    Y = 1,
+    beta = 4 ,
+    Dij = Dij
+)
+
+## set up time steps
+times <- seq(from = 0, to = 100, by = 0.01)
+
+## initial conditions
+yini <- runif(n, 5, 20)
+
+## run the model
+print(system.time(
+    out <- ode(
+      y = yini, times = times,  func = pollution, parms = params,
+      method = "bdf" ## see help("ode") for more methods
+      #events=list(func = posfun, time = times)
+    )
+))
+
+```

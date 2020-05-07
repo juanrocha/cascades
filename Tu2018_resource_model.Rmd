@@ -1,0 +1,76 @@
+---
+title: "Resource model Tu et al"
+output: html_notebook
+---
+
+
+
+### Resource model from Tu _et al_
+
+Not the expected result. Here is another model that I've worked with to test connections between resources that show a bit better the type of expected results. It is based on the paper by Tu et al [Impact of globalization on the resilience and sutaianbility of natural resources](https://www.nature.com/articles/s41893-019-0260-z). Their master equation is:
+
+$$\frac{dR_i}{dt} = a_i R_i (R_i - c_i) \left(1- \frac{R_i}{K_i^{R}} \right) - (E_i - I_i)$$
+
+where $a_i > 0$ is an intrinsic growth parameter, $K_i$ is the carrying capacity, $c_i$ accounts for the Allee effect ($K_i^R > c_i > 0$), which allows for the existence of two alternative equilibria. $E_i, I_i$ are exports and imports of resouces and depend on a delta parameter, a demand parameter proportional to population in the j node, the carrying capacity of the j node, and the adjacency matrix that determines which nodes are connected. My translation of their model to `R`:
+
+```{r}
+## model
+resource <- function(t, R, param){
+    with(as.list(R), {
+        growth <- alpha * R * (R - c_allee)*(1-(R/K))
+
+        ## For exmports and imports, I assume delta is 1 and K_L (demand by population) is also 1
+        exports <- delta * (t(C_ij) * t(A_ij)) %*% R
+        imports <- delta *(C_ij * A_ij) %*% R
+
+        dR <- growth  - exports + imports + rnorm(n=n, mean = 0, sd = 1)
+        return(list(dR)) #,  exports, imports
+    })
+}
+```
+
+```{r}
+## Parameters
+n <- 5                  ## number of countries and resources
+R <- runif(n, 10, 100)  ## 10 resources with random numbers
+alpha <- runif(n, 0.01, 0.1) ## growth rate
+c_allee <- runif(n, 10, 30) ## Allee parameter: food necessary to feed L_i population in country i
+K <- rep(100, times = n) ## carrying capacity
+
+C_ij <- matrix(runif(n^2, min = 0.2, max = 0.8), ncol = n)
+diag(C_ij) <- 0
+
+A_ij <- matrix(rbinom(n^2, 1, prob = 0.5), ncol = n)
+diag(A_ij) <- 0
+
+delta <-  1 # resource depletion coefficient (I dont' get why is necessary)
+
+## setting up 
+times <- seq(from = 0, to = 100, by = 0.01)
+params <- list(alpha = alpha, c_allee = c_allee, K = K, C_ij = C_ij)
+
+```
+```{r}
+## run the model
+print(system.time(
+    out <- ode(
+      y = R, times = times, parms = params, func = resource,
+      method = "lsodes" ## see help("ode") for more methods
+    )
+))
+
+```
+
+```{r warning=FALSE, message=FALSE}
+# Gather results and plot
+df <- out %>% as_tibble() %>%
+    gather(key = "species", value = "population", 2:(n+1))
+
+
+## plot result
+df %>%
+    ggplot(aes(x=time, y=population)) +
+    geom_line(aes(color = species), size = 0.25, show.legend = T) +
+    theme_light()
+
+```

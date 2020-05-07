@@ -1,0 +1,207 @@
+---
+title: "Simple model of interaction between resource and pollution systems"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_control: true
+    toc_depth: 3
+    fig_caption: true
+    fig_width: 4
+    fig_height: 3.5
+    highlight: tango
+    self_contained: true
+    theme: "paper"
+  html_notebook:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_control: true
+    toc_depth: 3
+    fig_caption: true
+    fig_width: 4
+    fig_height: 3.5
+    highlight: tango
+    self_contained: true
+    theme: "paper"
+  #pdf_document: default
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.width=4, fig.height=3.5, tidy = TRUE)
+```
+
+
+Note: this text comes from our working document on the google doc. I'm pasting here as a test of a working document that both Anne-Sophie and Juan can edit online. Inserting equations should be as easy as in $\LaTeX$. 
+
+## Rationale
+
+Working question to study: **how can we manage connectivity?** The principles of resilience include “manage connectivity” but few contributions indicate with some details how this connectivity should be managed. Here we develop a framework that will allow us to do that. We propose to look at two typical systems as the basic nodes of our world of connected systems. These typical systems are widely studied in the literature: a pollution system and a resource system. The pollution system is featured as a recipient that can flip between a clear regime and a polluted regime. The iconic case study for this system would be lakes. The resource system is featured as a resource that grows with logistic growth and can be predated (Holling type III predation), such as a fish stock.
+
+First we present the two models in more detail and then we study the implication of having several of each of these systems connected with each other and with flows of pollution or species (depending on the system) that can move between different nodes.
+
+### Suggested model for pollution stock:
+
+Let $y_i$ denote a stock of pollutant in a recipient $i$ among $n$ recipients (e.g. nutrients in surface water of a lake). Let $u_i$ denote the loading of pollutants from human activities to the recipient $i$. The term $v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}}$
+
+represents some kind of saturation term, which can generate nutrient release within the recipient (e.g. from the bottom sediment of a lake for water pollution or from the ocean or soil for atmospheric pollution like methane from melting permafrost). For low nutrient levels, the release is minimal but above some threshold $Y$ the system flips to a high release level. The term $v_{i}$ is the maximum level of internal nutrient release and the parameter $\beta_{i}$ indicates the sharpness of the shift. The highest this parameter is the sharpest the shift. For values close to $1$ the shift is smooth. The terms $\Delta_{ij}$ represent the diffusion of pollution between patch $i$ and some other patch $j$. It is the share of the pollution differential between the two recipients that actually moves between the two patches. The direction of motion will depend on which of the patches $i$ and $j$ has the highest density (the sign of $(y_j-y_i)$).
+
+$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} 
++ \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
+
+### Suggested model for resource stock:
+
+Let $x_i$ denote the stock of an ecosystem resource (fish) in some patch $i$ with carrying capacity $k_i$, and intrinsic growth rate $r_i$ . Let some parameter $c$ represent the availability of refuges for protection against e.g. predation in patch $i$. Let $q_i$ represent the rate of half saturation biomass for predation  i.e. the threshold population level above which predation shifts from a low to a high level (the location of the inflection point of an S-shape curve). Let $a_i$ be some curvature parameter (the higher the value of $a_i$. $d_{ij}$ represents the diffusion rate between patch $i$ and $j$, and $d_{ji}$ the opposite). The first term is a logistic growth term, the second term is a Holling type III predation rate and the two last terms are linear diffusion terms.
+
+$$
+\forall{i} \in\{1,...,n\}; 
+\frac{dx_i}{dt} = r_i x_i (1- \frac{x_i}{k_i}) 
+- c_i \frac{x_{i}^{a_i}}{q_{i}^{a_i} + x_{i}^{a_i}} +
+\sum_{j \neq i} d_{ij}(x_j - x_i)
+$$
+
+### Solution (graphic) for a simple model of diffusion between n connected pollution recipients (lakes) 
+
+To investigate the equilibrium and stability properties of this system we first characterise its equilibria.
+
+$$ \forall{i} \in \{ 1, ..., n\}; \frac{dy_i}{dt} = 0$$
+
+$$ \Leftrightarrow v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} = 
+- \sum_{j \neq i} \Delta_{ij} (y_j - y_i) - u_i$$
+
+This means that the equilibrium of each patch is characterized as the intersection between two curves. Curve A is an S shaped curve representing the left hand side of this equation. Its value is 0 at the origin and it approaches $v_i$ asymptotically as $y_i \rightarrow + \infty$. This curve has an inflection point at $Y,v_i/2$ and the steepness of the curve depends on $\beta_i$: the higher $\beta_i$ the steepest the curve is around the inflection point and the flattest it is elsewhere.
+
+Curve B is a straight line representing the right hand side of this expression. This straight line goes through the points $(0,D)$ and $(\frac{-D}{\sum_{j=1, j \neq i}^{n}}, 0)$ where 
+$D = -u_i - \sum_{j=1,j \neq i}^n \Delta_{ij} y_j, 0$
+
+
+<insert figure here>
+
+
+We can now compare with the solution of the problem when diffusion is not specifically modeled and instead only a run-off term enters the equation of motion $(-\Delta_i y_i)$, in which case the curve A is the same but the straight line corresponding to B  (in red in the figure) goes instead through the points $(0,-u_i)$ and $(\frac{u_i}{\Delta_i},0)$.
+
+If $\Delta_i = \sum_{j = 1, j \neq i}^n \Delta_{ij}$,then the B line in blue has the same slope than in the original model (red) but starts at a lower level, implying a higher propensity for ending up in a eutrophied regime when there is diffusion. This is caused by the inflow of pollutants from other systems, which does not exist without diffusion.
+
+If $\Delta_i < \sum_{j = 1, j \neq i}^n \Delta_{ij}$ , then the B line is flatter than the original implying an even higher propensity for ending up in a eutrophied regime
+
+
+If $\Delta_i > \sum_{j = 1, j \neq i}^n \Delta_{ij}$, then the B line is steeper, which limits the risk of ending up in a eutrophied regime while the lower starting level increases the risk. We may need to analyse the trade-offs occurring there.
+
+
+#### Steady states and their stability properties:
+
+$$\forall i \in \{1,...,n\}; \frac{dy_i}{dt} = 0$$
+
+$$ \Leftrightarrow v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} = 
+- \sum_{j \neq i} \Delta_{ij} (y_j - y_i) - u_i$$
+
+$$\Leftrightarrow v_i y_{i}^{\beta_i} = - (\sum_{j \neq i} \Delta_{ij} (y_j - y_i) - u_i) (Y^{\beta_i} + y_{i}^{\beta_i}) $$
+
+**J191029**: Here is Juan get's lost...
+
+
+$$\Leftrightarrow \sum_{j \neq i} \Delta_{ij}y_{i}^{\beta_i + 1} -
+\left(v_i - u_i + \sum_{j \neq i} \Delta_{ij}y_j \right)y_i^{\beta_i} - 
+\left(\sum_{j \neq i}\Delta_{ij} y_j - u_i \right)Y^{\beta_i} = 0 $$
+
+$$\Leftrightarrow y_i^{\beta_i} \left(\sum_{j \neq i} \Delta_{ij} y_i - v_i + u_i - \sum_{j \neq i} \Delta_{ij} y_j \right) -
+\left(\sum_{j \neq i} \Delta_{ij}y_j - u_i \right)Y^{\beta_i} = 0$$
+
+This is a polynomial of degree $\beta_i +1$. It may have analytical roots but I [Anne-Sophie] don’t know how to calculate them analytically. However graphically we can see that since B is a straight line and A is S shaped, given that $u_i>0$ there could be at least one equilibrium and at most 3 with real values of $y_i \geq 0$.
+
+How can we use this framework to investigate the diffusion patterns of regime shifts between different lakes?
+
+#### Solution (graphic) for a simple model of diffusion between n connected resource stocks
+
+To investigate the equilibrium and stability properties of this system we first normalise the units of the equation to minimize the number of parameters. 
+
+$$ \forall i \in \{1, ..., n\}; \frac{dx_i}{dt} = 
+r_i x_i \left( 1 - \frac{x_i}{k_i} \right) - 
+c_i \frac{x_{i}^{a_i}}{q_{i}^{a_i} + x_{i}^{a_i}} +
+\sum_{j \neq i} d_{ij}(x_j - x_i)
+$$
+
+Let $X_i = \frac{x_i}{q_i}$
+
+
+ASC: Tedious calcuation steps no need to read except for verifying that it is correct, then $\forall i \in \{1,...,n\}$
+
+$$
+\frac{dX_i}{d\tau} = \frac{dX_i}{dx_i} \frac{dx_i}{dt} \frac{dt}{d\tau} =
+\frac{dX_i}{dx_i}  \frac{dt}{d\tau} \left( r_i q_i X_i \left( 1 - \frac{q_i X_i}{k_i} \right) -
+k_i \frac{(q_i X_i)^{a_i}}{q_{i}^{a_i} + (q_i X_i)^{a_i}} + 
+\sum_{j \neq i} d_{ij}(q_j X_j - q_i X_i) \right)
+$$
+
+$$
+= \frac{1}{q_i} \frac{dt}{d\tau} \left(r_i q_i X_i \left( 1 - \frac{q_i X_i}{k_i} -
+c_i \frac{(X_i)^{a_i}}{1+ (X_i)^{a_i}} +
+\sum_{j \neq i} d_{ij}(q_j X_j - q_i X_i) 
+\right) \right) 
+$$
+
+Now we choose the time scale of $X_i$ so that $\frac{dt}{d\tau} = \frac{1}{\tau}$
+
+$$
+\frac{dX_i}{d\tau} = \frac{r_i}{r} X_i \left(1- \frac{q_i X_i}{k_i}\right) - \frac{c_i}{rq_i}
+\frac{(X_i)^{a_i}}{1+ (X_i)^{a_i}} +
+\sum_{j \neq i} \frac{d_{ij}}{r} \left(\frac{q_j}{q_i}X_j - X_i \right)
+$$
+
+End of calculation.
+
+Now let $K_i = \frac{k_i}{q_i}; C_i = \frac{c_i}{rq_i} ; R_i = \frac{r_i}{r}; Q_i = \frac{q_j}{q_i}$ and $D_{ij}= \frac{d_{ij}}{r}$ , we obtain
+
+$$
+\frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i}\right) -
+C_i\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
+\sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
+$$
+
+Then we can characterise its equilibria
+
+$$
+\forall i \in \{1, \ldots, n\}; \frac{dX_i}{d\tau} = 0
+$$
+
+$$\Leftrightarrow C_i \frac{X_i^{a_i}}{1+ X_i^{a_i}} = 
+R_i X_i \left(1 - \frac{X_i}{K_i} \right) +
+\sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
+$$
+
+$$
+\Leftrightarrow C_i \frac{X_i^{a_i}}{1+ X_i^{a_i}} = \left(R_i - \sum_{j \neq i}D_{ij} \right)X_i -
+\frac{R_i (X_i)^2}{K_i} + 
+\sum_{j \neq i}D_{ij}Q_j X_j 
+$$
+
+While an analytical solution is probably not available, the equilibria can be characterised analytically as the intersections of the graphs of two functions. The left hand side is very similar to the one in the pollution case except that the asymptote occurs at $C_i$ instead of $v_i$ and the inflection point is at 1. The right hand side is a concave function with value 
+
+$$D = \sum_{j = 1, j \neq i}^{n} D_{ij}Q_jX_j$$
+at the origin and at 
+
+$$X_i = K_i \left(\frac{R_i - \sum_{j \neq i}D_{ij}}{R_i} \right) $$
+It has a  maximum of $\frac{R_i K_i}{4} \left( \frac{R_i - \sum_{j \neq i} D_{ij}}{R_i} \right) ^2 + D$ at $X_i = \frac{K_i}{2R_i} \left( \frac{R_i - \sum_{j \neq i} D_{ij}}{R_i} \right)$ and reaches value $0$ for 
+
+$$X_i = \frac{K_i}{2R_i} \left( R_i = \sum_{j \neq i}D_{ij} + 
+\sqrt{\left( R_i - \sum_{j \neq i}D_{ij} \right)^2 + 4\frac{R_iD}{K_i}} \right) $$
+
+Can we say more?
+
+- For example we can say that $\frac{R_i - \sum_{j \neq i}D_{ij}}{R_i} \le 1$ implying that $K_i \left(\frac{R_i - \sum_{j \neq i}D_{ij}}{R_i} \right)  \le K_i$
+- Do we need that $0 \le R_i - \sum_{j \neq i}D_{ij}{R_i}$ ? this is the case when the intrisinc growth rate in one patch is always larger than the sum of all outflow rates from that patch. Intuitively this needs not necessarily be the case particularly if the inflow to that patch is large. We could distinguish between net sources and net receivers.
+- We seem to have two cases depending on whether or not $R_i K_i (1 - \frac{K_i}{K_i}) + \sum_{j=1, j \neq i}^{n} D_{ij}(Q_j X_j - K_i) \ge 0$. This defines a threshold value for D:
+    - $\bar{D} = K_i \sum_{j=1, j \neq i} D_{ij}$ for $D > \bar{D}$, the curve cuts the $X_i$ axis above $K_i$ while for 
+    - $D< \bar{D}$, it cuts the $X_i$ axis below $K_i$.
+- We have also two cases depending on whether $\frac{R_i K_i}{4} \left( \frac{R_i - \sum_{j \neq i}D{ij}}{R_i} \right)^2 + D > \frac{R_iK_i}{4}$ or not. And the limit case when they are equal. Define this limit value of the sum of outflows to all other patches $\hat{D}$ as
+
+$$\frac{R_i K_i}{4}  \left( \frac{R_i - \sum_{j \neq i}D{ij}}{R_i} \right)^2 + D > \frac{R_iK_i}{4} 
+\Leftrightarrow +D > \frac{R_i K_i}{4}-\frac{R_i K_i}{4}  \left( \frac{R_i - \sum_{j \neq i}D{ij}}{R_i} \right)^2 
+\equiv \hat{D}
+$$
+How do $\hat{D}$ and $\bar{D}$ relate to each other?
