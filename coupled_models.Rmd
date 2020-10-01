@@ -40,30 +40,50 @@ knitr::opts_chunk$set(comment=NA, fig.width=4, fig.height=3.5, tidy = TRUE)
 library(deSolve)
 # library(deTestSet)
 library(tidyverse)
+library(rlang)
 ```
 
 # Coupled models: Pollution as critical parameter {.tabset .tabset-pills}
-This document presents preliminary results of the scenarios discussed in our [shared Google doc](https://docs.google.com/document/d/1V8E0u9WrES7Vur-ar926BehMn7VcTPaBe62QxtmmqoM/edit?usp=sharing). Please check that the way I'm coupling the equations is correct, or potential alternatives to avoid division by zero.
+This document presents preliminary results of the scenarios discussed in our [shared Google doc](https://docs.google.com/document/d/1V8E0u9WrES7Vur-ar926BehMn7VcTPaBe62QxtmmqoM/edit?usp=sharing). Please check that the way I'm coupling the equations is correct, or potential alternatives to avoid division by zero. On the paper lakes are X and resources Y. Here I used the old notation of the readME document, with resources being X and lakes Y. The first equation always correspond to a modification of equation 6 in the paper, the second equation corresponds to equation 3.
 
+To couple both systems, ASC suggested the following functional forms starting at 0 and increasing towards 1:
+
+  * $1 - \frac{1}{1+x} = \frac{x}{1+x}$
+  * $1 - e^{-x}$
+
+And starting and 1 and decreasing towards 0
+
+  * $\frac{1}{1+x^2}$
+  * $\frac{1}{1+x}$
+  * $\frac{2}{1+e^x}$
+  * $e^{-x}$
+
+
+Each of these funcitons can be tested on the fly by changing the `link_f` and recompiling the notebook.
 
 ## Scenario 1
 ### The amount of pollution is critical for the carrying capacity of the resource 
 
 $$
-\frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i * (1 - y/10)} \right) -
-C_i\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
-\sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
+\frac{dx_i}{dt} = r_i x_i \left( 1 - \frac{x_i}{K_i * \color{orange}{(1/1+y_i)} } \right) -
+C_i\frac{(x_i)^{a_i}}{1^{a_i} + (x_i)^{a_i}} +
+\sum_{j \neq i}D_{ij}(Q_jx_j - x_i)
 $$
 
-$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} 
-+ \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
+$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{z_i^{\beta_i} + y_{i}^{\beta_{i}}} 
++ \sum_{j \neq i} \delta_{ij} (Z_{j}y_{j} - y_{i})$$
 
-I'm including the term $(1 - y/10)$ next to the carrying capacity. It means that the level of nutrients in the lake, which ranges from 0 to $~7.5$ in the simulations, will decrease the carrying capacity proportionally. So when nutrients reach 5 (eutrophic lake), the carrying capacity drops to half. 
+I'm including the term $(1 / 1 + y_i)$ next to the carrying capacity. It means that as the level of nutrients decreases in the lake, the carrying capacity decreases. First three lakes and three resources connected $L \rightarrow R$ but not between each other.
 
-First three lakes and three resources connected $L \rightarrow R$ but not between each other.
+**J200526**: update -- I'm using now a link function `link_f` declared at the begining of the code chunk, so there is less places to make manual edits and thus possible errors.
+
+
 ```{r}
+
+link_f <- expr((1 / (1 + y))) ## This is the link function
+
 ## set matrixes
-n <- 3
+n <- 3      # number of system elements (resources, lakes)
 Dij <- matrix(0,
   #runif(n^2, min = 0.02, max = 0.05),
   ncol = n, nrow = n)
@@ -73,7 +93,7 @@ Lij <- matrix(0,
   ncol = n, nrow = n)
 diag(Lij) <- 0
 
-
+rootfun <- function(t,y,parms) {as.numeric(!any(y<0))}
 # This is where we define your event function
 # Add this directly above your call to ode()
   posfun <- function(t, y, parms){
@@ -84,37 +104,42 @@ diag(Lij) <- 0
   }
 
 
-## Slow variable? perhaps latter
+## Coupled equations
 
 coupled <- function(t, yini, params){
   with(as.list(c(yini, params)), {
-    x <- yini[1:3]
-    y <- yini[4:6]
+    x <- yini[1:n]          # n is the number of resources or lakes
+    y <- yini[(1+n):(n*2)]  # yini has n inintial contidions for resources and lakes
     
-    dx <- R * x * (1- x/ (K * 1 - y/10)) - c *((x^a) / (1 + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
+    dx <- R * x * (1- x/ (K * eval(link_f) ) ) - c *((x^a) / (1 + (x^a) )) - rowSums(Dij * Qi * outer(x, x, FUN = "-")) + colSums(Dij * Qi * outer(x, x, FUN = "-"))
+    dy <- u - (b*y) + v * (y^beta/(1^beta + y^beta)) - rowSums(Lij * Zi * outer(y, y, FUN = "-")) + colSums(Lij * Zi * outer(y, y, FUN = "-"))
     
     return(list(c(dx, dy)))
   })
 }
 
+# J200603: Note that I modified the code for the difussion term to account for row and col sums. I did the exercise in paper. Row and Col sums are necessary because each represent outputs and inputs in that time step; but the quantity and direction depends on the state variable in t-1. The directionality of the network is lost despite an asymmetric matrix, because the sign of the quantity flow changes over time. 
+
+
 ## Parameters
 params <- list(
-  v = 10,
-  u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  #Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 0.33,
   Lij = Lij,
+  Zi = 0.33,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
   a =  4,        # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  c = 1.7,
+  b = 1/2
 )
 ## Initial conditions
-yini <- c(x = c(runif(n, 8,20)),   # x are resources
-          y = c(runif(n, 0, 2.5))) # y are lakes
+yini <- c(x = c(runif(n, 8,12)),   # x are resources
+          y = c(runif(n, 0, 0.5))) # y are lakes
 
 ## set up time steps
 times <- seq(from = 0, to = 100, by = 0.01)
@@ -122,14 +147,15 @@ times <- seq(from = 0, to = 100, by = 0.01)
 ## run the model
 #print(system.time(
     out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
+      y = yini, times = times, 
+      parms = params, func = coupled, root = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, time = times, root = TRUE)
     )
 #))
 ```
 
-The three lakes converge to a clean state (low nutrients) and the three species converge to carrying capacity, around 9.5
+The three lakes converge to a clean state (low nutrients) and the three species converge to carrying capacity, around ~7.5
 
 ```{r message=FALSE, warning=FALSE, fig.width=7}
 out %>%
@@ -149,37 +175,25 @@ Now I will turn on the slow variable of nutrient loading, which should tip the l
 ```{r message = FALSE, warning=FALSE, fig.width=7}
 ## slow variable 
 # varying consumption term
-df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.25, 5, length.out = 101 ))
+df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.01, 1, length.out = 101 ))
 u_var <- approxfun(df_pollution)
 
 
 coupled <- function(t, yini, params){
   with(as.list(c(yini, params)), {
-    x <- yini[1:3]
-    y <- yini[4:6]
+    x <- yini[1:n]          # n is the number of resources or lakes
+    y <- yini[(1+n):(n*2)]      # yini has n inintial contidions for resources and lakes
     u <- u_var(t)
     
-    dx <- R * x * (1- x/ (K * 1 - y/10)) - c *((x^a) / (1 + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
+    dx <- R * x * (1- x/ (K * eval(link_f) ) ) - c *((x^a) / (1 + (x^a) )) - rowSums(Dij * Qi * outer(x, x, FUN = "-")) + colSums(Dij * Qi * outer(x, x, FUN = "-"))
+    dy <- u - (b*y) + v * (y^beta/(1^beta + y^beta)) - rowSums(Lij * Zi * outer(y, y, FUN = "-")) + colSums(Lij * Zi * outer(y, y, FUN = "-"))
     
     return(list(c(dx, dy)))
   })
 }
 
-## Parameters
-params <- list(
-  v = 10,
- # u = 0.5,
-  Y = 2.5,
-  beta = 4 ,
-  Dij = Dij,
-  Lij = Lij,
-  R =  1,        # Growth rate
-  K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
-)
+## Parameters same as before, no need to run again
+
 ## run the model
 #print(system.time(
     out <- ode(
@@ -202,9 +216,9 @@ out %>%
 
 ```
 
-As expected, once the lakes shift to a eutrophic --high nutrient-- regime, the resource systems shift from their carrying capacity to half of it. We can tune that effect on the model if we want.
+As expected, once the lakes shift to a eutrophic --high nutrient-- regime, the resource systems shift from their carrying capacity to its lower equilibrium.
 
-Next I activate the connection between lakes following the chain network $1 \leftarrow 2 \leftarrow 3$:
+Next I activate the connection between lakes following the chain network $1 \rightarrow 2 \rightarrow 3$:
 
 ```{r message=FALSE, warning=FALSE, fig.width=7 }
 ## set matrixes
@@ -213,36 +227,37 @@ Dij <- matrix(0,
   #runif(n^2, min = 0.02, max = 0.05),
   ncol = n, nrow = n)
 diag(Dij) <- 0
+
+
 Lij <- matrix(c(
   0,1,0,
   0,0,1,
   0,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = T)
 diag(Lij) <- 0
 
-
-## Parameters
+## Parameters: update matrices
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  # u = 0.05,
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
-
 ## run the model
 #print(system.time(
     out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
+      y = yini, times = times, parms = params, func = coupled, rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, time = times, root = TRUE)
     )
 #))
 #Plot results
@@ -257,14 +272,20 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
+
 ```
+
+
 Now a tree network: $2 \leftarrow 1 \rightarrow 3$
 
 ```{r message=FALSE, warning=FALSE, fig.width=7}
+## Do you need to increase running time?
+## slow variable
+# varying consumption term
+df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.01, 1, length.out = 201 ))
+u_var <- approxfun(df_pollution)
+
+
 ## set matrixes
 n <- 3
 Dij <- matrix(0,
@@ -276,30 +297,31 @@ Lij <- matrix(c(
   0,0,0,
   0,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = F)
 diag(Lij) <- 0
 
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 
 ## run the model
 #print(system.time(
     out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
-      #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      y = yini, times = seq(from = 0, to = 200, by = 0.01), 
+      parms = params, func = coupled, rootfun = rootfun,
+      method = "lsoda", ## see help("ode") for more methods
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -314,18 +336,16 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
 ```
+
+
 And the cycle network $1 \rightarrow 2 \rightarrow 3 \rightarrow 1$:
 
 ```{r message=FALSE, warning=FALSE, fig.width=7}
 ## Do you need to increase running time?
-# ## slow variable 
-# # varying consumption term
-df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.25, 10, length.out = 201 ))
+## slow variable
+# varying consumption term
+df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.01, 1, length.out = 201 ))
 u_var <- approxfun(df_pollution)
 
 
@@ -333,38 +353,40 @@ u_var <- approxfun(df_pollution)
 n <- 3
 Dij <- matrix(0,
   #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Dij) <- 0
 Lij <- matrix(c(
   0,1,0,
   0,0,1,
   1,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = F)
 diag(Lij) <- 0
 
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  # u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 
 ## run the model
 #print(system.time(
     out <- ode(
-      y = yini, times = seq(from = 0, to = 200, by = 0.01), 
-      parms = params, func = coupled,
-      method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      y = yini, times = seq(from = 0, to = 200, by = 0.1), 
+      parms = params, func = coupled, rootfun = rootfun,
+      #method = "bdf", ## see help("ode") for more methods
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -379,13 +401,10 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
+
 ```
 
-For the last simulation I had to increase runtime. Notice that now the lakes tip after year 100, not before year 50 as in other networks. The shift in the three-lake system is now delayed, and the transition in the resource system is smoothed. I don't think this result is entirely new (space smooths out critical transitions), but it rises interesting discussions regarding management and possibly detection. Network connectivity matters a lot, it change the timing in both directions depending of network structure, and under certain circumstances it can buffer the transition (buy time) but also mask signals of collapse.
+For the last simulation I had to increase runtime. Notice that now the lakes tip after year 100, not before year 50 as in other networks. The shift in the three-lake system is now delayed, and the transition in the resource system is smoothed. I don't think this result is entirely new (space smooths out critical transitions), but it rises interesting discussions regarding management and possibly detection. Network connectivity matters a lot, it changes the timing in both directions depending of network structure, and under certain circumstances it can buffer the transition (buy time) but also mask signals of collapse.
 
 We have not tested yet any complicated network setting (random, scale-free, small-world); and we have not allowed connections yet between resources.
 
@@ -395,15 +414,16 @@ We have not tested yet any complicated network setting (random, scale-free, smal
 
 
 $$
-\frac{dX_i}{d\tau} = R_i(1-y/10) X_i \left( 1 - \frac{X_i}{K_i} \right) -
+\frac{dX_i}{d\tau} = R_i \color{orange}{(1/1 + y_i)} X_i \left( 1 - \frac{X_i}{K_i} \right) -
 C_i\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
 \sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
 $$
 
-$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}}
-+ \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
+$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{1
+^{\beta_{i}} + y_{i}^{\beta_{i}}}
++ \sum_{j \neq i} \Delta_{ij} (Z_{j}y_{j} - y_{i})$$
 
-The term $(1 - y/10)$ is now next to the reproduction rate. The level of nutrients in the lake will decrease the reproductive rate proportionally. So when nutrients reach 5 (eutrophic lake), the reproduction rate drops by half. 
+The term $(1 /1 + y_i)$ is now next to the reproduction rate. The level of nutrients in the lake will decrease the reproductive rate proportionally. So when nutrients reach 5 (eutrophic lake), the reproduction rate drops by half. 
 
 We simulate first three lakes and three resources connected $L \rightarrow R$ but not between each other.
 ```{r}
@@ -429,44 +449,42 @@ diag(Lij) <- 0
   }
 
 
-## Slow variable? perhaps latter
-
 coupled <- function(t, yini, params){
   with(as.list(c(yini, params)), {
     x <- yini[1:3]
     y <- yini[4:6]
     
-    dx <- R * (1 - y/10) * x * (1- x/ K ) - c *((x^a) / (1 + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
-    
+    dx <- R * eval(link_f) *  x * (1- x/ (K  ) ) - c *((x^a) / (1 + (x^a) )) - rowSums(Dij * Qi * outer(x, x, FUN = "-")) + colSums(Dij * Qi * outer(x, x, FUN = "-"))
+    dy <- u - (b*y) + v * (y^beta/(1^beta + y^beta)) - rowSums(Lij * Zi * outer(y, y, FUN = "-")) + colSums(Lij * Zi * outer(y, y, FUN = "-"))
     return(list(c(dx, dy)))
   })
 }
 
 ## Parameters
 params <- list(
-  v = 10,
-  u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
-## Initial conditions
-yini <- c(x = c(runif(n, 8,20)), # x are resources
-          y = c(runif(n, 0, 2.5))) # y are lakes
+
 
 ## run the model
 #print(system.time(
     out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
+      y = yini, times = times, parms = params, 
+      func = coupled, rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 ```
@@ -491,7 +509,7 @@ Now I will turn on the slow variable of nutrient loading, which should tip the l
 ```{r message = FALSE, warning=FALSE, fig.width=7}
 ## slow variable 
 # varying consumption term
-df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.25, 5, length.out = 101 ))
+df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.01, 1, length.out = 101 ))
 u_var <- approxfun(df_pollution)
 
 
@@ -501,34 +519,36 @@ coupled <- function(t, yini, params){
     y <- yini[4:6]
     u <- u_var(t)
     
-    dx <- R * (1 - y/10) * x * (1- x/ K ) - c *((x^a) / (1 + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
+    dx <- R * eval(link_f) *  x * (1- x/ (K  ) ) - c *((x^a) / (1 + (x^a) )) - rowSums(Dij * Qi * outer(x, x, FUN = "-")) + colSums(Dij * Qi * outer(x, x, FUN = "-"))
+    dy <- u - (b*y) + v * (y^beta/(1^beta + y^beta)) - rowSums(Lij * Zi * outer(y, y, FUN = "-")) + colSums(Lij * Zi * outer(y, y, FUN = "-"))
     
     return(list(c(dx, dy)))
   })
 }
-
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 
 ## run the model
 #print(system.time(
     out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
+      y = yini, times = times, parms = params, 
+      func = coupled, rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -545,7 +565,7 @@ out %>%
 
 ```
 
-As expected, once the lakes shift to a eutrophic --high nutrient-- regime, the resource systems shift from their carrying capacity to half of it. Since the amount of nutrients is set to increase linearly, its negative effect is also reflected on a linear decrease of population size noticeable both before and after the shift, but with a steaper slope after the lake has become eutrophic.
+As expected, once the lakes shift to a eutrophic --high nutrient-- regime, the resource drops from its carrying capacity proportinally to the increase of nutrients. Since the amount of nutrients is set to increase linearly, its negative effect is also reflected on a linear decrease of population size noticeable both before and after the shift, but with a steaper slope after the lake has become eutrophic.
 
 Similar to the previous exercise, next I activate the connection between lakes following the chain network $1 \rightarrow 2 \rightarrow 3$:
 
@@ -563,30 +583,33 @@ Lij <- matrix(c(
   0,0,1,
   0,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = T)
 diag(Lij) <- 0
 
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 
 ## run the model
 #print(system.time(
     out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
+      y = yini, times = times, parms = params, 
+      func = coupled, rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -601,10 +624,6 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
 ```
 Here is a result I don't understand. Lake $y_2$ is the lake in the middle of flow in the chain, it's nutrient content goes to negative values (meaning it exports more than receive from $u$?), while lakes $y_1$ and $y_3$ flip about the same time. If flow was working correctly, the expectation is that $y_1$ would collapse later because of the outflow, $y_2$ would collapse at the same time because input and output through difussion are the same (before tipping); and $y_3$ should collapse earlier because it is getting all the additional nutrients from upstream.
 
@@ -622,28 +641,31 @@ Lij <- matrix(c(
   0,0,0,
   0,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = T)
 diag(Lij) <- 0
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 ## run the model
 #print(system.time(
     out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
-      #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      y = yini, times = times, parms = params, 
+      func = coupled, rootfun = rootfun,
+      method = "bdf", ## see help("ode") for more methods
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -658,10 +680,6 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
 ```
 This simulation is easier to follow. Lake $y_1$ does stay on clear state since all its nutrient inputs are being exported to the other lakes downstream. It even goes to negative nutrients, meaning that the nutrients input per time period is lower than the output to other lakes the same time period. This should not happen with the zero correction function. On the resource side, population $x_1$ remains healthy at carrying capacity while the others decline as expected once their lakes have shifted.
 
@@ -673,7 +691,7 @@ And the cycle network $1 \rightarrow 2 \rightarrow 3 \rightarrow 1$:
 ## Do you need to increase running time?
 # ## slow variable 
 # # varying consumption term
-df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.25, 10, length.out = 201 ))
+df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.01, 1, length.out = 201 ))
 u_var <- approxfun(df_pollution)
 
 
@@ -681,38 +699,40 @@ u_var <- approxfun(df_pollution)
 n <- 3
 Dij <- matrix(0,
   #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Dij) <- 0
 Lij <- matrix(c(
   0,1,0,
   0,0,1,
   1,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = F)
 diag(Lij) <- 0
 
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  # u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 
 ## run the model
 #print(system.time(
     out <- ode(
       y = yini, times = seq(from = 0, to = 200, by = 0.01), 
-      parms = params, func = coupled,
+      parms = params, func = coupled, rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -727,10 +747,7 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
+
 ```
 
 For the last simulation I had to increase runtime. Notice that now the lakes tip after year 100, not before year 50 as in other networks. The shift in the three-lake system is now delayed, and the transition in the resource system is smoothed. 
@@ -742,13 +759,13 @@ For the last simulation I had to increase runtime. Notice that now the lakes tip
 
 $$
 \frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i} \right) -
-C_i (1 - y/10)\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
+C_i \color{orange}{(1 /1 + y_i)}\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
 \sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
 $$
 
-$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} + \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
+$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{1^{\beta_{i}} + y_{i}^{\beta_{i}}} + \sum_{j \neq i} \Delta_{ij} (Z_jy_{j} - y_{i})$$
 
-I'm including the term $(1 - y/10)$ next to the consumption efficiency $c$. It means that the level of nutrients in the lake, which ranges from 0 to $~7.5$ in the simulations, will decrease the consumption efficiency proportionally. So when nutrients reach 5 (eutrophic lake), the consumption efficiency drops to half. 
+I'm including the term $(1 /1+y_i)$ next to the consumption efficiency $c$. It means that the level of nutrients in the lake, which ranges from 0 to $~7.5$ in the simulations, will decrease the consumption efficiency proportionally. So when nutrients reach 5 (eutrophic lake), the consumption efficiency drops to half. 
 
 First three lakes and three resources connected $L \rightarrow R$ but not between each other.
 ```{r}
@@ -781,37 +798,38 @@ coupled <- function(t, yini, params){
     x <- yini[1:3]
     y <- yini[4:6]
     
-    dx <- R * x * (1- x/ K ) - c * (1 - y/10) *((x^a) / (1 + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
-    
+    dx <- R  *  x * (1- x/ (K  ) ) - c * eval(link_f) *((x^a) / (1 + (x^a) )) - rowSums(Dij * Qi * outer(x, x, FUN = "-")) + colSums(Dij * Qi * outer(x, x, FUN = "-"))
+    dy <- u - (b*y) + v * (y^beta/(1^beta + y^beta)) - rowSums(Lij * Zi * outer(y, y, FUN = "-")) + colSums(Lij * Zi * outer(y, y, FUN = "-"))
+     
     return(list(c(dx, dy)))
   })
 }
 
 ## Parameters
 params <- list(
-  v = 10,
-  u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
-## Initial conditions
-yini <- c(x = c(runif(n, 8,20)), # x are resources
-          y = c(runif(n, 0, 2.5))) # y are lakes
+
 
 ## run the model
 #print(system.time(
     out <- ode(
       y = yini, times = times, parms = params, func = coupled,
+      rootfunc = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 ```
@@ -836,7 +854,7 @@ Now I will turn on the slow variable of nutrient loading, which should tip the l
 ```{r message = FALSE, warning=FALSE, fig.width=7}
 ## slow variable 
 # varying consumption term
-df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.25, 5, length.out = 101 ))
+df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.01, 1, length.out = 101 ))
 u_var <- approxfun(df_pollution)
 
 
@@ -846,8 +864,8 @@ coupled <- function(t, yini, params){
     y <- yini[4:6]
     u <- u_var(t)
     
-    dx <- R * x * (1- x/ K ) - c * (1 - y/10) *((x^a) / (1 + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
+    dx <- R  *  x * (1- x/ (K  ) ) - c * eval(link_f) *((x^a) / (1 + (x^a) )) - rowSums(Dij * Qi * outer(x, x, FUN = "-")) + colSums(Dij * Qi * outer(x, x, FUN = "-"))
+    dy <- u - (b*y) + v * (y^beta/(1^beta + y^beta)) - rowSums(Lij * Zi * outer(y, y, FUN = "-")) + colSums(Lij * Zi * outer(y, y, FUN = "-"))
     
     return(list(c(dx, dy)))
   })
@@ -855,17 +873,19 @@ coupled <- function(t, yini, params){
 
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 
 ## run the model
@@ -892,42 +912,45 @@ out %>%
 
 As expected, once the lakes shift to a eutrophic --high nutrient-- regime, the resource systems increase in abundance because the consuption rate was affected negatively by nutrient pollution. This could be the case when pollution affects visibility and predators find it harder to hunt its prey. One could think of the opposite effect, pollution increasing consumption -- by for example reducing the ability of the prey to hide when its habitat is affected (e.g. coral reefs or kelp beds). For now the effect is positive on the resource population.
 
-Next I activate the connection between lakes following the chain network $1 \leftarrow 2 \leftarrow 3$: Here again I run into troubles at explaining why lake $y_2$ does not flip given the chain network, or the lack of timing change for the lakes at the extremes of the chain.
+Next I activate the connection between lakes following the chain network $1 \rightarrow 2 \rightarrow 3$: Here again I run into troubles at explaining why lake $y_2$ does not flip given the chain network, or the lack of timing change for the lakes at the extremes of the chain.
 
 ```{r message=FALSE, warning=FALSE, fig.width=7 }
 ## set matrixes
 n <- 3
 Dij <- matrix(0,
   #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Dij) <- 0
 Lij <- matrix(c(
   0,1,0,
   0,0,1,
   0,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = F)
 diag(Lij) <- 0
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 ## run the model
 #print(system.time(
     out <- ode(
       y = yini, times = times, parms = params, func = coupled,
+      rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -942,10 +965,6 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
 ```
 Now a tree network: $2 \leftarrow 1 \rightarrow 3$
 
@@ -954,35 +973,38 @@ Now a tree network: $2 \leftarrow 1 \rightarrow 3$
 n <- 3
 Dij <- matrix(0,
   #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Dij) <- 0
 Lij <- matrix(c(
   0,1,1,
   0,0,0,
   0,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = F)
 diag(Lij) <- 0
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 ## run the model
 #print(system.time(
     out <- ode(
       y = yini, times = times, parms = params, func = coupled,
+      rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -997,10 +1019,7 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
+
 ```
 And the cycle network $1 \rightarrow 2 \rightarrow 3 \rightarrow 1$:
 
@@ -1008,7 +1027,7 @@ And the cycle network $1 \rightarrow 2 \rightarrow 3 \rightarrow 1$:
 ## Do you need to increase running time?
 # ## slow variable 
 # # varying consumption term
-df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.25, 10, length.out = 201 ))
+df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.01, 1, length.out = 201 ))
 u_var <- approxfun(df_pollution)
 
 
@@ -1016,28 +1035,30 @@ u_var <- approxfun(df_pollution)
 n <- 3
 Dij <- matrix(0,
   #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Dij) <- 0
 Lij <- matrix(c(
   0,1,0,
   0,0,1,
   1,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Lij) <- 0
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 ## run the model
 #print(system.time(
@@ -1060,10 +1081,7 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
+
 ```
 
 The last two simulations are very similar to scenarios 1 and 2.
@@ -1072,22 +1090,37 @@ The last two simulations are very similar to scenarios 1 and 2.
 ## Scenario 4
 ### The amount of pollution is critical for the half saturation biomass for predation
 
+**J200608:** This scenario dissapears if the denominator is forced to be $1 + X_{i}^{\alpha_{i}}$
 
 $$
 \frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i} \right) -
-C_i\frac{(X_i)^{a_i}}{1*(y)^{a_i} + (X_i)^{a_i}} +
+C_i\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
 \sum_{j \neq i}D_{ij}(Q_j X_j - X_i)
+$$
+
+$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{1^{\beta_{i}} + y_{i}^{\beta_{i}}} + \sum_{j \neq i} \Delta_{ij} (Z_jy_{j} - y_{i})$$
+
+
+## Scenario 5
+### The amount of pollution is critical for the difussion
+
+
+$$
+\frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i} \right) -
+C_i\frac{(X_i)^{a_i}}{1^{a_i} + (X_i)^{a_i}} +
+\sum_{j \neq i}D_{ij}(\color{orange}{1/1+y_i})(Q_j X_j - X_i)
 $$
 
 $$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} + \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
 
-Now the term $(1 - y/10)$ is on the denominator of the second term of the resource equation. It affects the saturation term, but in our early discussions we were not sure it makes sense. It means that the level of nutrients in the lake, which ranges from 0 to $~7.5$ in the simulations, will change the shape of the saturation term ("S" shape), posibly vanishing the alternative equilibria depending on all other parameters. 
+I'm not quite sure how to include $y_i$ on the difussion term. Remember, $D_{i,j}$ is a matrix that up to now has always been zero. There is no movement of resources between patches in this set of experiments. One can think that pollution, or $y_i$, would trigger either migration towards a lake if pollutants are say food, or migration out of the lake if pollutants are an inconvenience to the resource species. What it means is that vector $y_i$ would activate $D_{i,j}$ to be non-zero, and the sign would change depending of $Q_jY_j - Y_i)$ or $\sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$ as in the second equation. How do I represent that mathematically? -- and concretely in the code?
 
-As usual, first three lakes and three resources connected $L \rightarrow R$ but not between each other.
+I leave the code chunks commented out below for now so we can brainstorm solutions.
+
 ```{r}
 ## set matrixes
 n <- 3
-Dij <- matrix(0,
+Dij <- matrix(1,
   #runif(n^2, min = 0.02, max = 0.05),
   ncol = n, nrow = n)
 diag(Dij) <- 0
@@ -1097,398 +1130,56 @@ Lij <- matrix(0,
 diag(Lij) <- 0
 
 
-# This is where we define your event function
-# Add this directly above your call to ode()
-  posfun <- function(t, y, parms){
-    with(as.list(y), {
-      y[which(y<0)] <- 0  
-      return(y)
-    })
-  }
-
-
-## Slow variable? perhaps latter
-
 coupled <- function(t, yini, params){
   with(as.list(c(yini, params)), {
     x <- yini[1:3]
     y <- yini[4:6]
     
-    dx <- R * x * (1- x/ K ) - c  *((x^a) / ( 1*((y)^a) + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
-    
+    dx <- R  *  x * (1- x/ (K  ) ) - c  *((x^a) / (1 + (x^a) )) - rowSums(Dij * eval(link_f) * Qi * outer(x, x, FUN = "-")) + colSums(Dij * eval(link_f)* Qi * outer(x, x, FUN = "-"))
+    dy <- u - (b*y) + v * (y^beta/(1^beta + y^beta)) - rowSums(Lij * Zi * outer(y, y, FUN = "-")) + colSums(Lij * Zi * outer(y, y, FUN = "-"))
+     
     return(list(c(dx, dy)))
   })
 }
 
 ## Parameters
 params <- list(
-  v = 10,
-  u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
-)
-## Initial conditions
-yini <- c(x = c(runif(n, 8,20)), # x are resources
-          y = c(runif(n, 0, 2.5))) # y are lakes
-
-## run the model
-#print(system.time(
-    out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
-      #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
-    )
-#))
-```
-
-The three lakes converge to a clean state (low nutrients) and the three species converge to carrying capacity, around 9.5
-
-```{r message=FALSE, warning=FALSE, fig.width=7}
-out %>%
-  as_tibble() %>% 
-  gather(key = "species", value = "abundance", 2:7) %>% 
-  mutate(type = str_remove_all(species, "[:digit:]"),
-         type = ifelse(type == "x", "resource", "lake")) %>%
-  #filter(time < 35) %>%
-  ggplot(aes(time, abundance)) + 
-  geom_line(aes(color = species)) +
-  facet_wrap(~type, scales = "free") +
-  theme_light()
-```
-
-Now I will turn on the slow variable of nutrient loading, which should tip the lakes during simulation and therefore impact the saturation biomass of the species:
-
-```{r message = FALSE, warning=FALSE, fig.width=7}
-## slow variable 
-# varying consumption term
-df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.25, 5, length.out = 101 ))
-u_var <- approxfun(df_pollution)
-
-
-coupled <- function(t, yini, params){
-  with(as.list(c(yini, params)), {
-    x <- yini[1:3]
-    y <- yini[4:6]
-    u <- u_var(t)
-    
-    dx <- R * x * (1- x/ K ) - c  *((x^a) / ((1 *(y)^a) + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
-    
-    return(list(c(dx, dy)))
-  })
-}
-
-## Parameters
-params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
-  beta = 4 ,
-  Dij = Dij,
-  Lij = Lij,
-  R =  1,        # Growth rate
-  K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 
 ## run the model
 #print(system.time(
     out <- ode(
       y = yini, times = times, parms = params, func = coupled,
+      rootfunc = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
-#Plot results
-out %>%
-  as_tibble() %>% 
-  gather(key = "species", value = "abundance", 2:7) %>% 
-  mutate(type = str_remove_all(species, "[:digit:]"),
-         type = ifelse(type == "x", "resource", "lake")) %>%
-  #filter(time < 35) %>%
-  ggplot(aes(time, abundance)) + 
-  geom_line(aes(color = species)) +
-  facet_wrap(~type, scales = "free") +
-  theme_light()
-
-```
-
-The effect on the resource dynamics is a small increase on the carrying capacity. 
-
-Next I activate the connection between lakes following the chain network $1 \leftarrow 2 \leftarrow 3$: Here again I run into troubles at explaining why lake $y_2$ does not flip given the chain network, or the lack of timing change for the lakes at the extremes of the chain.
-
-```{r message=FALSE, warning=FALSE, fig.width=7 }
-## set matrixes
-n <- 3
-Dij <- matrix(0,
-  #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
-diag(Dij) <- 0
-Lij <- matrix(c(
-  0,1,0,
-  0,0,1,
-  0,0,0
-),
-  ncol = n, nrow = n)
-diag(Lij) <- 0
-## Parameters
-params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
-  beta = 4 ,
-  Dij = Dij,
-  Lij = Lij,
-  R =  1,        # Growth rate
-  K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
-)
-## run the model
-#print(system.time(
-    out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
-      #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
-    )
-#))
-#Plot results
-out %>%
-  as_tibble() %>% 
-  gather(key = "species", value = "abundance", 2:7) %>% 
-  mutate(type = str_remove_all(species, "[:digit:]"),
-         type = ifelse(type == "x", "resource", "lake")) %>%
-  #filter(time < 35) %>%
-  ggplot(aes(time, abundance)) + 
-  geom_line(aes(color = species)) +
-  facet_wrap(~type, scales = "free") +
-  theme_light()
-
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
-```
-Now a tree network: $2 \leftarrow 1 \rightarrow 3$
-
-```{r message=FALSE, warning=FALSE, fig.width=7}
-## set matrixes
-n <- 3
-Dij <- matrix(0,
-  #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
-diag(Dij) <- 0
-Lij <- matrix(c(
-  0,1,1,
-  0,0,0,
-  0,0,0
-),
-  ncol = n, nrow = n)
-diag(Lij) <- 0
-## Parameters
-params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
-  beta = 4 ,
-  Dij = Dij,
-  Lij = Lij,
-  R =  1,        # Growth rate
-  K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
-)
-## run the model
-#print(system.time(
-    out <- ode(
-      y = yini, times = times, parms = params, func = coupled,
-      #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
-    )
-#))
-#Plot results
-g <- out %>%
-  as_tibble() %>% 
-  gather(key = "species", value = "abundance", 2:7) %>% 
-  mutate(type = str_remove_all(species, "[:digit:]"),
-         type = ifelse(type == "x", "resource", "lake")) %>%
-  #filter(time < 35) %>%
-  ggplot(aes(time, abundance)) + 
-  geom_line(aes(color = species)) +
-  facet_wrap(~type, scales = "free") +
-  theme_light()
-
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
-
-plotly::ggplotly(g)
-```
-And the cycle network $1 \rightarrow 2 \rightarrow 3 \rightarrow 1$:
-
-```{r message=FALSE, warning=FALSE, fig.width=7}
-## Do you need to increase running time?
-# ## slow variable 
-# # varying consumption term
-df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.25, 10, length.out = 201 ))
-u_var <- approxfun(df_pollution)
-
-
-## set matrixes
-n <- 3
-Dij <- matrix(0,
-  #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
-diag(Dij) <- 0
-Lij <- matrix(c(
-  0,1,0,
-  0,0,1,
-  1,0,0
-),
-  ncol = n, nrow = n)
-diag(Lij) <- 0
-## Parameters
-params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
-  beta = 4 ,
-  Dij = Dij,
-  Lij = Lij,
-  R =  1,        # Growth rate
-  K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
-)
-## run the model
-#print(system.time(
-    out <- ode(
-      y = yini, times = seq(from = 0, to = 200, by = 0.01), 
-      parms = params, func = coupled,
-      #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
-    )
-#))
-#Plot results
-out %>%
-  as_tibble() %>% 
-  gather(key = "species", value = "abundance", 2:7) %>% 
-  mutate(type = str_remove_all(species, "[:digit:]"),
-         type = ifelse(type == "x", "resource", "lake")) %>%
-  #filter(time < 35) %>%
-  ggplot(aes(time, abundance)) + 
-  geom_line(aes(color = species)) +
-  facet_wrap(~type, scales = "free") +
-  theme_light()
-
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
-```
-
-## Scenario 5
-### The amount of pollution is critical for the difussion
-
-
-$$
-\frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i} \right) -
-C_i\frac{(X_i)^{a_i}}{1^{a_i} + (X_i)^{a_i}} +
-\sum_{j \neq i}D_{ij}(y_i)(Q_j X_j - X_i)
-$$
-
-$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{Y^{\beta_{i}} + y_{i}^{\beta_{i}}} + \sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$$
-
-I'm not quite sure how to include $y_i$ on the difussion term. Remember, $D_{i,j}$ is a matrix that up to now has always been zero. There is no movement of resources between patches in this set of experiments. One can think that pollution, or $y_i$, would trigger either migration towards a lake if pollutants are say food, or migration out of the lake if pollutants are an inconvenience to the resource species. What it means is that vector $y_i$ would activate $D_{i,j}$ to be non-zero, and the sign would change depending of $Q_jY_j - Y_i)$ or $\sum_{j \neq i} \Delta_{ij} (y_{j} - y_{i})$ as in the second equation. How do I represent that mathematically? -- and concretely in the code?
-```{r}
-# ## set matrixes
-# n <- 3
-# Dij <- matrix(0,
-#   #runif(n^2, min = 0.02, max = 0.05),
-#   ncol = n, nrow = n)
-# diag(Dij) <- 0
-# Lij <- matrix(0,
-#   #runif(n^2, min = 0.02, max = 0.05),
-#   ncol = n, nrow = n)
-# diag(Lij) <- 0
-# 
-# 
-# # This is where we define your event function
-# # Add this directly above your call to ode()
-#   posfun <- function(t, y, parms){
-#     with(as.list(y), {
-#       y[which(y<0)] <- 0  
-#       return(y)
-#     })
-#   }
-# 
-# 
-# ## Slow variable? perhaps latter
-# 
-# coupled <- function(t, yini, params){
-#   with(as.list(c(yini, params)), {
-#     x <- yini[1:3]
-#     y <- yini[4:6]
-#     
-#     dx <- R * x * (1- x/ K ) - c  *((x^a) / ( 1 + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-#     dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
-#     
-#     return(list(c(dx, dy)))
-#   })
-# }
-# 
-# ## Parameters
-# params <- list(
-#   v = 10,
-#   u = 0.5,
-#   Y = 2.5,
-#   beta = 4 ,
-#   Dij = Dij,
-#   Lij = Lij,
-#   R =  1,        # Growth rate
-#   K = 10,        # carryng capacity
-#   a =  4,         # maximum level after crossing the threshold
-#   c = 0.5,
-#   b = 2.2
-# )
-# ## Initial conditions
-# yini <- c(x = c(runif(n, 8,20)), # x are resources
-#           y = c(runif(n, 0, 2.5))) # y are lakes
-
-# ## run the model
-# #print(system.time(
-#     out <- ode(
-#       y = yini, times = times, parms = params, func = coupled,
-#       #method = "bdf", ## see help("ode") for more methods
-#       events=list(func = posfun, time = times)
-#     )
-# #))
 ```
 
 
 
 ```{r fig.width=7, message=FALSE, warning=FALSE, eval = FALSE}
 out %>%
-  as_tibble() %>% 
-  gather(key = "species", value = "abundance", 2:7) %>% 
+  as_tibble() %>%
+  gather(key = "species", value = "abundance", 2:7) %>%
   mutate(type = str_remove_all(species, "[:digit:]"),
          type = ifelse(type == "x", "resource", "lake")) %>%
   #filter(time < 35) %>%
-  ggplot(aes(time, abundance)) + 
+  ggplot(aes(time, abundance)) +
   geom_line(aes(color = species)) +
   facet_wrap(~type, scales = "free") +
   theme_light()
@@ -1499,7 +1190,7 @@ Now I will turn on the slow variable of nutrient loading, which should tip the l
 ```{r message = FALSE, warning=FALSE, fig.width=7, eval = FALSE}
 ## slow variable 
 # varying consumption term
-df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.25, 5, length.out = 101 ))
+df_pollution <- data.frame(year = seq(0, 100, 1), c = seq(0.01, 1, length.out = 101 ))
 u_var <- approxfun(df_pollution)
 
 
@@ -1509,8 +1200,8 @@ coupled <- function(t, yini, params){
     y <- yini[4:6]
     u <- u_var(t)
     
-    dx <- R * x * (1- x/ K ) - c  *((x^a) / ((1 *(y)^a) + (x^a) )) - ((Dij %*% x) + (t(Dij) %*% x))
-    dy <- u - (b*y) + v * (y^beta/(Y^beta + y^beta)) - ((Lij %*% y) + (t(Lij) %*% y))
+    dx <- R  *  x * (1- x/ (K  ) ) - c  *((x^a) / (1 + (x^a) )) - rowSums(Dij* eval(link_f) * Qi * outer(x, x, FUN = "-")) + colSums(Dij* eval(link_f) * Qi * outer(x, x, FUN = "-"))
+    dy <- u - (b*y) + v * (y^beta/(1^beta + y^beta)) - rowSums(Lij * Zi * outer(y, y, FUN = "-")) + colSums(Lij * Zi * outer(y, y, FUN = "-"))
     
     return(list(c(dx, dy)))
   })
@@ -1518,17 +1209,19 @@ coupled <- function(t, yini, params){
 
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 
 ## run the model
@@ -1553,44 +1246,47 @@ out %>%
 
 ```
 
-The effect on the resource dynamics is a small increase on the carrying capacity. 
+The effect on the resource dynamics is...
 
-Next I activate the connection between lakes following the chain network $1 \leftarrow 2 \leftarrow 3$: Here again I run into troubles at explaining why lake $y_2$ does not flip given the chain network, or the lack of timing change for the lakes at the extremes of the chain.
+Next I activate the connection between lakes following the chain network $1 \rightarrow 2 \rightarrow 3$: Here again I run into troubles at explaining why lake $y_2$ does not flip given the chain network, or the lack of timing change for the lakes at the extremes of the chain.
 
 ```{r message=FALSE, warning=FALSE, fig.width=7, eval = FALSE}
 ## set matrixes
 n <- 3
-Dij <- matrix(0,
+Dij <- matrix(1,
   #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Dij) <- 0
 Lij <- matrix(c(
   0,1,0,
   0,0,1,
   0,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = F)
 diag(Lij) <- 0
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 ## run the model
 #print(system.time(
     out <- ode(
       y = yini, times = times, parms = params, func = coupled,
+      rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
@@ -1605,51 +1301,51 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
+
 ```
 Now a tree network: $2 \leftarrow 1 \rightarrow 3$
 
 ```{r message=FALSE, warning=FALSE, fig.width=7, eval = FALSE}
 ## set matrixes
 n <- 3
-Dij <- matrix(0,
+Dij <- matrix(1,
   #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Dij) <- 0
 Lij <- matrix(c(
   0,1,1,
   0,0,0,
   0,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = T)
 diag(Lij) <- 0
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 ## run the model
 #print(system.time(
     out <- ode(
       y = yini, times = times, parms = params, func = coupled,
+      rootfun = rootfun,
       #method = "bdf", ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
+      events=list(func = posfun, root = TRUE)
     )
 #))
 #Plot results
-g <- out %>%
+out %>%
   as_tibble() %>% 
   gather(key = "species", value = "abundance", 2:7) %>% 
   mutate(type = str_remove_all(species, "[:digit:]"),
@@ -1660,12 +1356,7 @@ g <- out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
 
-plotly::ggplotly(g)
 ```
 And the cycle network $1 \rightarrow 2 \rightarrow 3 \rightarrow 1$:
 
@@ -1673,36 +1364,38 @@ And the cycle network $1 \rightarrow 2 \rightarrow 3 \rightarrow 1$:
 ## Do you need to increase running time?
 # ## slow variable 
 # # varying consumption term
-df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.25, 10, length.out = 201 ))
+df_pollution <- data.frame(year = seq(0, 200, 1), c = seq(0.01, 1, length.out = 201 ))
 u_var <- approxfun(df_pollution)
 
 
 ## set matrixes
 n <- 3
-Dij <- matrix(0,
+Dij <- matrix(1,
   #runif(n^2, min = 0.02, max = 0.05),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = TRUE)
 diag(Dij) <- 0
 Lij <- matrix(c(
   0,1,0,
   0,0,1,
   1,0,0
 ),
-  ncol = n, nrow = n)
+  ncol = n, nrow = n, byrow = F)
 diag(Lij) <- 0
 ## Parameters
 params <- list(
-  v = 10,
-  #u = 0.5,
-  Y = 2.5,
+  v = 1,
+  u = 0.05,
+  # Yi = 2.5, == Zi # to be consisten with notation.
   beta = 4 ,
   Dij = Dij,
+  Qi = 1/n,
   Lij = Lij,
+  Zi = 1/n,
   R =  1,        # Growth rate
   K = 10,        # carryng capacity
-  a =  4,         # maximum level after crossing the threshold
-  c = 0.5,
-  b = 2.2
+  a =  4,        # maximum level after crossing the threshold
+  c = 1.7,
+  b = 1/2
 )
 ## run the model
 #print(system.time(
@@ -1725,10 +1418,7 @@ out %>%
   facet_wrap(~type, scales = "free") +
   theme_light()
 
-# library(patchwork)
-# 
-# g1 + ~  igraph::graph_from_adjacency_matrix(Lij) %>%
-#   igraph::plot.igraph()
+
 ```
 
 

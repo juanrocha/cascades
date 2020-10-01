@@ -367,7 +367,7 @@ This model has already the in-built function that prevents the behaviour of havi
 ## parameters on the working environment
   v = 10    # this is like a carrying capacity
   u = 0.5
-  Y = 2.5
+  Y = 1
   beta = 4
   Dij = Dij
   b = 2.2

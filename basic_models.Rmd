@@ -1,0 +1,219 @@
+---
+title: "Basic models cascade paper"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_control: true
+    toc_depth: 3
+    fig_caption: true
+    fig_width: 4
+    fig_height: 3.5
+    highlight: tango
+    self_contained: true
+    theme: "paper"
+  html_notebook:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_control: true
+    toc_depth: 3
+    fig_caption: true
+    fig_width: 4
+    fig_height: 3.5
+    highlight: tango
+    self_contained: true
+    theme: "paper"
+  #pdf_document: default
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.width=4, fig.height=3.5, tidy = TRUE)
+```
+```{r libraries, warning=FALSE, message=FALSE, echo = FALSE}
+library(deSolve)
+# library(deTestSet)
+library(tidyverse)
+```
+Basic resource and pollution models used in the cascades paper with Anne-Sophie Crepin.
+
+## Resource
+
+$$
+\frac{dx_i}{dt} = r_i x_i \left( 1 - \frac{x_i}{K_i} \right) -
+C_i\frac{(x_i)^{a_i}}{q_i^{a_i} + (x_i)^{a_i}} +
+\sum_{j \neq i}D_{ij}(x_j - x_i)
+$$
+```{r initial_conditions}
+
+n <- 2 ## number of cresources
+
+## Parameters: The delta and d parameters are set here by hand to replicate ASC results.
+##  Later they are set randomly on the fly.
+R <- 1          # Growth rate
+K <- 10 # carryng capacity
+delta <- 0.05   # share of stock that diffuses to other plots
+a <- 4          # maximum level after crossing the threshold
+c <- 1.7        # consumption efficiency
+d <- 0.02       # total diffiusion from all other plots to i
+q <- 1
+Dij <- matrix(c(0, delta, d, 0), nrow = 2, byrow = FALSE)
+
+## Initial conditions:
+
+yini <- runif(n, 8, 20)  
+
+```
+
+```{r, fig.align="center"}
+## small dataframe
+df <- tibble( x = rep(0:12))
+## components of the function, with and without diffusion
+growth <- function(x) {R*x*(1-(x/K))}
+growth_diffusion <- function(x) {R*x*(1-(x/K)) + d*x - delta *x}
+consumption <- function(x){c *((x^a) / ((q^a) + (x^a) ))}
+## plot
+ggplot(data = df, aes(x)) +
+  stat_function(fun = growth, color = "blue", size = 0.1) +
+  stat_function(fun = growth_diffusion, color = "orange", size = 0.1) +
+  stat_function(fun = consumption, color = "purple", size = 0.1) +
+  geom_hline(yintercept = 0, color = "gray", size = 0.1) + 
+  labs(x = "x", y = "f(x)") + #xlim(0,12) + ylim(0,3) +
+  theme_light(base_size = 7)
+
+```
+
+#### Re-scaled resource:
+$$
+\frac{dX_i}{d\tau} = R_i X_i \left( 1 - \frac{X_i}{K_i} \right) -
+C_i\frac{(X_i)^{a_i}}{1 + (X_i)^{a_i}} +
+\sum_{j \neq i}D_{ij}Q_{ij}(X_j - X_i)
+$$
+```{r}
+
+#n <- 2 ## number of cresources
+
+## Parameters: The delta and d parameters are set here by hand to replicate ASC results.
+##  Later they are set randomly on the fly.
+R <- 1          # Growth rate
+K <- 10 # carryng capacity
+delta <- 0.05   # share of stock that diffuses to other plots
+a <- 4          # maximum level after crossing the threshold
+c <- 2        # consumption efficiency
+d <- 0.02       # total diffiusion from all other plots to i
+q <- 1
+Dij <- matrix(c(0, delta, d, 0), nrow = 2, byrow = FALSE)
+
+## Initial conditions:
+
+yini <- runif(n, 8, 20)  
+
+```
+
+```{r, fig.align="center"}
+## small dataframe
+df <- tibble( x = seq(0,10, by = 0.01))
+## components of the function, with and without diffusion
+growth <- function(x) {R*x*(1-(x/K))}
+growth_diffusion <- function(x) {R*x*(1-(x/K)) + d*x - delta *x}
+consumption <- function(x){c *((x^a) / (1 + (x^a) ))}
+## plot
+ggplot(data = df, aes(x)) +
+  stat_function(fun = growth, color = "blue", size = 0.1) +
+  stat_function(fun = growth_diffusion, color = "orange", size = 0.1) +
+  stat_function(fun = consumption, color = "purple", size = 0.1) +
+  geom_hline(yintercept = 0, color = "gray", size = 0.1) + 
+  labs(x = "x", y = "f(x)") + #xlim(0,12) + ylim(0,3) +
+  theme_light(base_size = 7)
+
+```
+
+
+### Pollution
+
+$$\forall{i} \in\{1,...,n\}; \frac{dy_i}{dt} = u_i - b_iy_i + v_i \frac{y_{i}^{\beta_{i}}}{z_i^{\beta_i} + y_{i}^{\beta_{i}}} 
++ \sum_{j \neq i} \delta_{ij} (y_{j} - y_{i})$$
+
+```{r warning=FALSE, message=FALSE, fig.align="center"}
+## parameters on the working environment
+  v = 1            # maximum rate of internal nutrient loading (top of line)
+  u = 0.05           # pollution loading
+  z = 1             # anoxic level
+  beta = 4          # param that shapes the sharpness of the curve
+  Dij = Dij         # adjacency matrix
+  b = 1/2           # saturation rate (nutrient loss due to sedimentation)
+
+
+## small dataframe
+df <- tibble( x = rep(0:12, 3))
+## components of the function, with and without diffusion
+pollutant <- function(y) { v * (y^beta/(z^beta + y^beta))}  ## Original model formulated by ASC
+pollutant_sedimentation <- function(y) { v * (y^beta/(z^beta + y^beta)) } ## adding the saturation parameter
+management <- function(y){- u + (b*y)} ## now the diffusion term is in the management line.
+management_diffusion <- function(y){ - ((0.01 * y) - (0.05 * y)) - u + (b*y)} ## now the diffusion term is in the management line.
+## plot
+ggplot(data = df, aes(x)) +
+  #stat_function(fun = pollutant, color = "blue", linetype = 2) +
+  stat_function(fun = pollutant_sedimentation, color = "orange") +
+  stat_function(fun = management_diffusion, color = "purple") +
+  stat_function(fun = management, color = "dodgerblue") +
+  geom_hline(yintercept = 0, color = "gray") + 
+  labs(x = "y", y = "f(y)") + xlim(0,3) +
+  theme_light(base_size = 7)
+```
+
+
+Using here the modifications from Mäler et al (2003). The rescale the lake equation as:
+
+$$\dot x(t) = a(t) - bx(t) + \frac{x^2(t)}{x^2(t) + 1}, x(0) = x_0$$
+
+Now, notice that the anoxic level $z$ is now 1, but also $v$ dissapear, which means that it is implicitly one. All scaled values of this model are between 0-1 for $x$, and $v$ in a way is the equivalent of the carrying capacity or the maximum level of nutrients. For the Mäler model, it is bistable when parameter $1/2 < b < 3\sqrt{3/8}$ 
+
+```{r}
+## parameters on the working environment
+  v = 1            # maximum rate of internal nutrient loading (top of line)
+  u = 0.1           # pollution loading
+  z = 1           # anoxic level
+  beta = 2          # param that shapes the sharpness of the curve
+  Dij = Dij         # adjacency matrix
+  b = 1/2           # saturation rate (nutrient loss due to sedimentation)
+
+## small dataframe
+df <- tibble( x = seq(0,2,0.01), a = seq(0,2,0.01))
+## components of the function, with and without diffusion
+pollutant <- function(y) { v * (y^beta/(z^beta + y^beta))}  ## Original model formulated by ASC
+pollutant_sedimentation <- function(y) { v * (y^beta/(z^beta + y^beta)) } ## adding the saturation parameter
+management <- function(y){- u + (b*y)} ## now the diffusion term is in the management line.
+management_diffusion <- function(y){ - ((0.01 * y) - (0.05 * y)) - u + (b*y)} ## now the diffusion term is in the management line.
+
+## plot
+ggplot(data = df, aes(x)) +
+  #stat_function(fun = pollutant, color = "blue", linetype = 2) +
+  stat_function(fun = pollutant, color = "orange") +
+  stat_function(fun = management_diffusion, color = "purple") +
+  stat_function(fun = management, color = "dodgerblue") +
+  geom_hline(yintercept = 0, color = "gray") + 
+  labs(x = "y", y = "f(y)") +
+  theme_light(base_size = 7)
+```
+
+```{r}
+## solve for a
+solving_a <- function(x){
+    a <- 0.48*x - ((x^2) + 1/ (x^2))
+    return(a)
+}
+
+dat <- tibble(x = seq(0,2,0.01)) 
+dat %>%
+    mutate(b_05 = solving_a(x)) %>%
+    ggplot(aes(x,b_05)) +
+    geom_line()
+
+```
+
