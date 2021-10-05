@@ -10,30 +10,15 @@ output:
       smooth_control: true
     toc_depth: 3
     fig_caption: true
-    fig_width: 4
-    fig_height: 3.5
     highlight: default
-    self_contained: true
+    self_contained: false
+    lib_dir: libs
     theme: "paper"
-  html_notebook:
-    df_print: paged
-    code_folding: hide
-    toc: false
-    toc_float:
-      collapsed: true
-      smooth_control: true
-    toc_depth: 3
-    fig_caption: true
-    fig_width: 4
-    fig_height: 3.5
-    highlight: default
-    self_contained: true
-    theme: "paper"
-  #pdf_document: default
+
 ---
 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(comment=NA, fig.width=4, fig.height=3.5, tidy = TRUE)
+knitr::opts_chunk$set(comment=NA, fig.width=7, fig.height=3.5, tidy = TRUE)
 ```
 
 ```{r libraries, warning=FALSE, message=FALSE, echo = FALSE}

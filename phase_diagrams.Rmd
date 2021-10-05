@@ -1,0 +1,584 @@
+---
+title: "Phase diagrams"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_control: true
+    toc_depth: 3
+    fig_caption: true
+    fig_width: 7
+    fig_height: 3.5
+    highlight: default
+    self_contained: false
+    theme: "paper"
+    lib_dir: libs
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.width=7, fig.height=3.5, tidy = TRUE)
+
+```
+
+
+```{r libraries, warning=FALSE, message=FALSE}
+library(deSolve)
+# library(deTestSet)
+library(tidyverse)
+library(patchwork)
+library(network)
+library(ggnetwork)
+theme_set(theme_light())
+```
+Set up the model:
+
+## Normalized resource model:
+
+$$  
+\frac{dY_i}{d\tau} =R_iY_i\left(1-\frac{Y_i}{K_i}\right)-C_i \frac{Y_i^{\beta_i}}{1+Y_i^{\beta_i}} + \sum_{j\not=i}D_{ij}(Q_{ij}Y_j-Y_i)
+$$
+
+Let $r$ denote the time difference between $t$ and $\tau$, $R_i=\frac{r_i}{r}$, $K_i=\frac{k_i}{q_i}$, $C_i=\frac{c_i}{rq_i}$, $Q_{ij}=\frac{d_{ji}q_j}{d_{ij}q_i}$, and $D_{ij}=\frac{d_{ij}}{r}$. 
+
+```{r}
+# This is where we define your event function
+# Add this directly above your call to ode()
+posfun <- function(t, y, parms){
+  with(as.list(y), {
+    y[which(y<0)] <- 0
+    return(y)
+  })
+}
+
+
+## model
+resource_norm <- function(t, y, params){
+  with(as.list(c(y, params)), {
+    ## Normalization steps:
+    Y = y/r0
+    R = r/r0
+    K0 = K/q
+    C = c/(r0*q)
+    Qij_parts <- d_ij * q
+    Qij = t(Qij_parts) / Qij_parts ## the same as lower triangle / upper triangle and viceversa
+    ## the next line corrects the case when Zij is NaN induced by division by zero. In that case, Zij should be a matrix full of zeroes = no connections.
+    if(all(is.nan(Qij))) Qij = Qij_parts
+    
+    # set diag to zero
+    diag(Qij) <- 0
+    D_ij = d_ij / r0
+    
+    ## System with normalized parameters
+    resource <- R * Y * (1 - (Y/K0)) - C * (Y^b / (1 + Y^b))
+    outflow <-  (A_ij * D_ij * Qij) %*% Y
+    inflow <-  t(A_ij * D_ij) %*% Y 
+    # Qij is not multiplied by D_ij by suggestion of ASC.
+
+    dX <- resource + (inflow - outflow)
+    
+    return(list(c(dX)))
+  })
+}
+
+## set up flux matrix
+n <- 1        # number of systems
+#delta_ij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
+d_ij <- matrix(rep(0,n^2), ncol = n) # turn off diffusion terms
+diag(d_ij) <- 0
+A_ij <- matrix(rbinom(n^2, 1, prob = 0.3), n, n)
+diag(A_ij) <- 0
+
+
+params <- list(
+    r0 = rep(1,n),                # scaling parameter
+    r = rep(1.5, n),              # intrinsic growth rate
+    K = rep(10, n),               # Carrying capacity
+    c = rep(2, n),                # max predation rate
+    q = 1, #runif(n, min = 2, max = 8),        # threshold
+    b = 4 ,                       # sharpness of the shift
+    d_ij = d_ij,                  # matrix of diffusion terms
+    A_ij = A_ij                   # adjacency matrix
+)
+
+## set up time steps
+times <- seq(from = 0, to = 100, by = 0.01)
+
+## initial conditions
+yini <- runif(n, 0.5, 5)
+
+## run the model
+out <- ode(
+  y = yini, times = times,  func = resource_norm, parms = params,
+  method = "bdf", ## see help("ode") for more methods
+  events=list(func = posfun, time = times)
+)
+
+
+df <- out %>% as_tibble() %>%
+    gather(key = "species", value = "population", 2:last_col())
+
+df %>%
+    ggplot(aes(x=time, y=population)) +
+    geom_line(aes(color = species), size = 0.25, show.legend = T) +
+    scale_y_continuous(limits = c(0,NA))
+```
+
+```{r}
+## make up some initial values
+xini <- seq(0.25,5, 0.5)
+qini <- seq(0.25,5, 0.5)
+
+ini_grid <- expand.grid(xini, qini) %>%
+    rename(xini = Var1, qini = Var2)
+```
+
+```{r}
+## making simulations shorter to save some time
+times <- seq(from = 0, to = 10, by = 0.01)
+library(tictoc)
+
+results <- list()
+tic()
+results <- pmap(
+    list(
+        x = ini_grid$xini,
+        y = ini_grid$qini),
+    .f = function(x,y){
+        params$q <- y
+        yini <- x
+        out <- ode(
+            y = yini, times = times,  func = resource_norm, parms = params,
+            method = "bdf", ## see help("ode") for more methods
+            events=list(func = posfun, time = times))
+        return(out)
+    }
+)
+toc()
+```
+
+```{r}
+results <- results %>%
+  map(
+    function(x) {
+      x <- x %>% 
+        as_tibble() %>% 
+        rename(sp = `1`) %>%
+        mutate(sp_lag = tsibble::difference(sp)) # this is the derivative
+      return(x)
+    }
+  )
+
+```
+
+```{r}
+results <- results %>% 
+  map2(., ini_grid$xini, .f = function(x,y) {
+    x$xini <- y
+    return(x)
+  })
+
+results <- results %>% 
+  map2(., ini_grid$qini, .f = function(x,y) {
+    x$qini <- y
+    return(x)
+  })
+```
+
+```{r}
+results %>%
+  map(., function(x) x %>% map_df(., as.numeric)) %>% 
+  bind_rows() %>%
+  mutate(id = paste(xini, qini, sep = "_")) %>%
+  ggplot(aes(sp, sp_lag, group = id)) +
+  geom_hline(yintercept = 0, color = "black", size = 0.1) +
+  geom_line(aes(color = as_factor(qini)), size = 0.2, show.legend = TRUE) + 
+  labs(x = "x", y = "dx", title = "Sensitivity to innitial conditions and threshold q" ,
+       subtitle = "qini are different parameter values of q") +
+  facet_wrap(~xini)
+```
+
+```{r}
+results %>%
+  map(., function(x) x %>% map_df(., as.numeric)) %>% 
+  bind_rows() |> 
+  filter(time == 0.01 | time == 1) 
+```
+
+
+
+### 2 species
+
+```{r}
+ini_grid <- expand.grid(1:5, 1:5, 1:5) 
+
+## set up flux matrix
+n <- 2        # number of systems
+d_ij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
+#d_ij <- matrix(rep(0,n^2), ncol = n) # turn off difussion terms
+diag(d_ij) <- 0
+A_ij <- matrix(rbinom(n^2, 1, prob = 0.3), n, n)
+diag(A_ij) <- 0
+
+
+params <- list(
+    r0 = rep(1,n),                # scaling parameter
+    r = rep(1.5, n),              # intrinsic growth rate
+    K = rep(10, n),               # Carrying capacity
+    c = rep(2, n),                # max predation rate
+    q = 4, #runif(n, min = 2, max = 8),        # threshold
+    b = 4 ,                       # sharpness of the shift
+    d_ij = d_ij,                  # matrix of diffusion terms
+    A_ij = A_ij                   # adjacency matrix
+)
+
+## set up time steps
+times <- seq(from = 0, to = 10, by = 0.01)
+
+## initial conditions
+# yini <- runif(n, 0.5, 5)
+```
+
+```{r}
+results <- list()
+tic()
+results <- pmap(
+    ini_grid,
+    .f = function(Var1,Var2,Var3){
+        yini <- c(Var1,Var2)
+        params$q <- Var3
+        out <- ode(
+            y = yini, times = times,  func = resource_norm, parms = params,
+            method = "bdf", ## see help("ode") for more methods
+            events=list(func = posfun, time = times))
+        return(out)
+    }
+)
+toc()
+```
+
+```{r}
+results <- results %>%
+  map(
+    function(x) {
+      x <- x %>% 
+        as_tibble() %>% 
+        rename(sp1 = `1`, sp2 = `2`)
+      return(x)
+    }
+  )
+
+```
+```{r}
+results <- results %>% 
+  map2(., 1:nrow(ini_grid), .f = function(x,y) {
+    x$group <- y
+    return(x)
+  })
+```
+
+```{r}
+
+results <- results %>% 
+  map2(., ini_grid$Var3, .f = function(x,y) {
+    x$qini <- y
+    return(x)
+  })
+```
+
+
+```{r}
+results %>%
+  map(., function(x) x %>% map_df(., as.numeric)) %>% 
+  bind_rows() %>%
+  #mutate(id = paste(xini, qini, sep = "_")) %>%
+  ggplot(aes(sp1, sp2, group = group)) +
+  geom_line( #aes(color = as_factor(qini)), 
+    linetype = 2, size = 0.1, show.legend = TRUE) +
+  facet_wrap(~qini) +
+  coord_equal()
+```
+
+
+TODO: Extract fields using a lag per variable (doesn't have to be lag 1), and then sample the dataset so you have less arrows to draw.
+
+
+
+## leftovers
+
+### phase diagrams
+
+The only way to change $X$ is through $x_i$, same with $U$ and $u_i$. To better
+understand the param space where the bifurcation occurs, I need first to model
+individual systems. So back to the basic model. **not true, ASC pointed out I
+can use sp1 vs sp2**
+
+```{r}
+# ## set up flux matrix
+# n <- 10
+# #delta_ij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
+# delta_ij <- matrix(rep(0,n^2), ncol = n) # turn off difussion terms
+# diag(delta_ij) <- 0
+# A_ij <- matrix(0, n, n) # no connections
+# diag(A_ij) <- 0
+# ## Parameters: use rep() if the value is the same, or runif() ir meant to be different across systems
+# params <- list(
+#     u = seq.int(0.5,10,length.out = n),              # pollution load from humans
+#     s = rep(0.7, n),              # internal loss rate (sedimentation)
+#     v = rep(5, n),               # max level of internal nutrient release
+#     z = rep(4, n),                # threshold, same for all
+#     alpha = 4 ,                   # sharpness of the shift
+#     delta_ij = delta_ij,          # matrix of difussion terms
+#     A_ij = A_ij                   # adjacency matrix
+# )
+# 
+# ## set up time steps
+# times <- seq(from = 0, to = 100, by = 0.01)
+# 
+# ## initial conditions: more systematic
+# yini <- seq.int(from =0.5,to=5, length.out = n)
+# 
+# ## run the model
+# print(system.time(
+#     out <- ode(
+#       y = yini, times = times,  func = pollution, parms = params,
+#       method = "bdf" , ## see help("ode") for more methods
+#       events=list(func = posfun, time = times)
+#     )
+# ))
+# 
+# df <- out %>% as_tibble() %>%
+#     gather(key = "species", value = "population", 2:last_col())
+# 
+# df %>%
+#     ggplot(aes(x=time, y=population)) +
+#     geom_line(aes(color = species), size = 0.25, show.legend = T) + 
+#   #scale_x_log10() +
+#     theme_light()
+```
+
+What are sensible values?
+
+```{r}
+# ## small dataframe
+# df <- tibble( x = rep(0:12, 3))
+# ## components of the function, with and without diffusion
+# pollutant <- function(x) {  v * (x^alpha/(z^alpha + x^alpha))}  ## Original model formulated by ASC
+# management <- function(x){ -u + s*x } ## now the diffusion term is in the management line.
+# management_diffusion <- function(x){ - ((0.01 * x) - (0.05 * x)) - u + (s*x)} ## now the diffusion term is in the management line.
+# 
+# #parameter selection:
+# #params <- list(
+#     u = 0.5                # pollution load from humans
+#     s = 0.7              # internal loss rate (sedimentation)
+#     v = 5               # max level of internal nutrient release
+#     z = 4                # threshold, same for all
+#     alpha = 4            # sharpness of the shift
+#     delta_ij = delta_ij  # matrix of difussion terms
+#     A_ij = A_ij          # adjacency matrix
+# # )
+# ## plot
+# ggplot(data = df, aes(x)) +
+#   #stat_function(fun = pollutant, color = "blue", linetype = 2) +
+#   stat_function(fun = pollutant, color = "orange") +
+#   stat_function(fun = management_diffusion, color = "purple") +
+#   stat_function(fun = management, color = "dodgerblue") +
+#   geom_hline(yintercept = 0, color = "gray") + 
+#   labs(x = "y", y = "f(y)") +
+#   theme_light()
+# ```
+# 
+# ```{r}
+# ## phase diagram attempt:
+# 
+# u <- seq.int(from =0.5,to=10, length.out = 10)
+# x_0 <- seq.int(from =0.5,to=10, length.out = 10)
+# 
+# df_sims <- expand.grid(u, x_0) %>%
+#   rename(u = Var1, x_0 = Var2)
+# 
+# ## for the phase diagram I only need short time snips: set up time steps
+# times <- seq(from = 0, to = 2, by = 0.01)
+# 
+# sims <- list()
+# 
+# sims <- map2(
+#   df_sims$u, df_sims$x_0,
+#   function(x,y){
+#     params$u <- x
+#     yini <- y
+#     out <- ode(
+#       y = yini, times = times,  func = pollution, parms = params,
+#       method = "bdf" , ## see help("ode") for more methods
+#       events=list(func = posfun, time = times))
+#     return(out)
+#   }
+# )
+
+```
+
+```{r}
+# l <- length(sims)
+# sims <- sims %>%
+#   map(function(x)  {x %>% as_tibble() %>%
+#     gather(key = "species", value = "population", 2:last_col())}) %>%
+#   map2(., df_sims$u, function(x,y) {
+#     x$u <- y
+#     return(x)}) %>%
+#   map2(., .y=seq(from =1, to =l,by =1), .f = function(x,y) {
+#     x$id <- y 
+#     return(x)}) %>%
+#   bind_rows()
+#   
+```
+
+```{r}
+# sims %>%
+#   map_df(as.numeric) %>%
+#   group_by(id) %>%
+#   mutate(pop_lag = lag(population)) %>%
+#   ggplot(aes(population, pop_lag)) +
+#   geom_path(aes(color = u, group = id), size = 0.5) +
+#   theme_light()
+
+```
+
+
+
+
+
+
+### more left overs
+
+### phase diagrams
+
+The only way to change $X$ is through $x_i$, same with $U$ and $u_i$. To better understand the param space where the bifurcation occurs, I need first to model individual systems. So back to the basic model.
+
+```{r}
+## set up flux matrix
+# n <- 10
+# #delta_ij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
+# delta_ij <- matrix(rep(0,n^2), ncol = n) # turn off difussion terms
+# diag(delta_ij) <- 0
+# A_ij <- matrix(0, n, n) # no connections
+# diag(A_ij) <- 0
+# ## Parameters: use rep() if the value is the same, or runif() ir meant to be different across systems
+# params <- list(
+#     u = seq.int(0.5,10,length.out = n),              # pollution load from humans
+#     s = rep(0.7, n),              # internal loss rate (sedimentation)
+#     v = rep(5, n),               # max level of internal nutrient release
+#     z = rep(4, n),                # threshold, same for all
+#     alpha = 4 ,                   # sharpness of the shift
+#     delta_ij = delta_ij,          # matrix of difussion terms
+#     A_ij = A_ij                   # adjacency matrix
+# )
+# 
+# ## set up time steps
+# times <- seq(from = 0, to = 100, by = 0.01)
+# 
+# ## initial conditions: more systematic
+# yini <- seq.int(from =0.5,to=5, length.out = n)
+# 
+# ## run the model
+# print(system.time(
+#     out <- ode(
+#       y = yini, times = times,  func = pollution, parms = params,
+#       method = "bdf" , ## see help("ode") for more methods
+#       events=list(func = posfun, time = times)
+#     )
+# ))
+# 
+# df <- out %>% as_tibble() %>%
+#     gather(key = "species", value = "population", 2:last_col())
+# 
+# df %>%
+#     ggplot(aes(x=time, y=population)) +
+#     geom_line(aes(color = species), size = 0.25, show.legend = T) + 
+#   scale_x_log10() +
+#     theme_light()
+```
+What are sensible values?
+
+```{r}
+# ## small dataframe
+# df <- tibble( x = rep(0:12, 3))
+# ## components of the function, with and without diffusion
+# pollutant <- function(x) {  v * (x^alpha/(z^alpha + x^alpha))}  ## Original model formulated by ASC
+# management <- function(x){ -u + s*x } ## now the diffusion term is in the management line.
+# management_diffusion <- function(x){ - ((0.01 * x) - (0.05 * x)) - u + (s*x)} ## now the diffusion term is in the management line.
+# 
+# #parameter selection:
+# #params <- list(
+#     u = 0.5                # pollution load from humans
+#     s = 0.7              # internal loss rate (sedimentation)
+#     v = 5               # max level of internal nutrient release
+#     z = 4                # threshold, same for all
+#     alpha = 4            # sharpness of the shift
+#     delta_ij = delta_ij  # matrix of difussion terms
+#     A_ij = A_ij          # adjacency matrix
+# # )
+# ## plot
+# ggplot(data = df, aes(x)) +
+#   #stat_function(fun = pollutant, color = "blue", linetype = 2) +
+#   stat_function(fun = pollutant, color = "orange") +
+#   stat_function(fun = management_diffusion, color = "purple") +
+#   stat_function(fun = management, color = "dodgerblue") +
+#   geom_hline(yintercept = 0, color = "gray") + 
+#   labs(x = "y", y = "f(y)") +
+#   theme_light()
+```
+
+```{r}
+## phase diagram attempt:
+# 
+# u <- seq.int(from =0.5,to=10, length.out = 10)
+# x_0 <- seq.int(from =0.5,to=10, length.out = 10)
+# 
+# df_sims <- expand.grid(u, x_0) %>%
+#   rename(u = Var1, x_0 = Var2)
+# 
+# sims <- list()
+# 
+# sims <- map2(
+#   df_sims$u, df_sims$x_0,
+#   function(x,y){
+#     params$u <- x
+#     yini <- y
+#     out <- ode(
+#       y = yini, times = times,  func = pollution, parms = params,
+#       method = "bdf" , ## see help("ode") for more methods
+#       events=list(func = posfun, time = times))
+#     return(out)
+#   }
+# )
+
+```
+
+```{r}
+# l <- length(sims)
+# sims <- sims %>%
+#   map(function(x)  {x %>% as_tibble() %>%
+#     gather(key = "species", value = "population", 2:last_col())}) %>%
+#   map2(., df_sims$u, function(x,y) {
+#     x$u <- y
+#     return(x)}) %>%
+#   map2(., .y=seq(from =1, to =l,by =1), .f = function(x,y) {
+#     x$id <- y 
+#     return(x)}) %>%
+#   bind_rows()
+#   
+```
+
+```{r}
+# sims %>%
+#   map_df(as.numeric) %>%
+#   group_by(id) %>%
+#   mutate(pop_lag = lag(population)) %>%
+#   ggplot(aes(population, pop_lag)) +
+#   geom_path(aes(color = u, group = id), size = 0.5) +
+#   theme_light()
+
+```
+

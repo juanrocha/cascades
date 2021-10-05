@@ -9,4 +9,7 @@
 *.log
 *.tex
 .DS_Store
+*.ccs
+*.js
+libs/
 

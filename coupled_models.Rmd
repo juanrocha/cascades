@@ -10,30 +10,14 @@ output:
       smooth_control: true
     toc_depth: 3
     fig_caption: true
-    fig_width: 4
-    fig_height: 3.5
     highlight: default
-    self_contained: true
+    self_contained: false
+    lib_dir: libs
     theme: "paper"
-  html_notebook:
-    df_print: paged
-    code_folding: hide
-    toc: false
-    toc_float:
-      collapsed: true
-      smooth_control: true
-    toc_depth: 3
-    fig_caption: true
-    fig_width: 4
-    fig_height: 3.5
-    highlight: default
-    self_contained: true
-    theme: "paper"
-  #pdf_document: default
 ---
 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(comment=NA, fig.width=4, fig.height=3.5, tidy = TRUE)
+knitr::opts_chunk$set(comment=NA, fig.width=7, fig.height=3.5, tidy = TRUE)
 ```
 
 ```{r libraries, warning=FALSE, message=FALSE, echo = FALSE}
@@ -118,7 +102,7 @@ coupled <- function(t, yini, params){
   })
 }
 
-# J200603: Note that I modified the code for the difussion term to account for row and col sums. I did the exercise in paper. Row and Col sums are necessary because each represent outputs and inputs in that time step; but the quantity and direction depends on the state variable in t-1. The directionality of the network is lost despite an asymmetric matrix, because the sign of the quantity flow changes over time. 
+# J200603: Note that I modified the code for the diffusion term to account for row and col sums. I did the exercise in paper. Row and Col sums are necessary because each represent outputs and inputs in that time step; but the quantity and direction depends on the state variable in t-1. The directionality of the network is lost despite an asymmetric matrix, because the sign of the quantity flow changes over time. 
 
 
 ## Parameters
@@ -489,7 +473,7 @@ params <- list(
 #))
 ```
 
-The three lakes converge to a clean state (low nutrients) and the three species converge to carrying capacity, around 9.5
+The three lakes converge to a clean state (low nutrients) and the three species converge to carrying capacity, around 7.5
 
 ```{r message=FALSE, warning=FALSE, fig.width=7}
 out %>%

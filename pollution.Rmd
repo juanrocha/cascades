@@ -1,19 +1,48 @@
 ---
 title: "Pollution model"
-output: html_notebook
+pagetitle: "Pollution"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_control: true
+    toc_depth: 3
+    fig_caption: true
+    fig_width: 7
+    fig_height: 3.5
+    highlight: default
+    self_contained: false
+    theme: "paper"
+    libs_dir: libs
+
 ---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+    comment=NA, fig.width=7, fig.height=3.5, tidy = TRUE)
+
+```
+
 
 ```{r libraries, warning=FALSE, message=FALSE}
 library(deSolve)
 # library(deTestSet)
 library(tidyverse)
+library(network)
+library(ggnetwork)
+library(patchwork)
 ```
-Updated version (J200925) with the current notation of the paper
+
+Updated version (J210925) with the current notation of the paper
 
 $$\forall{i} \in\{1,...,n\}; \frac{dx_i}{dt} = u_i - s_ix_i + v_i \frac{x_{i}^{\alpha_{i}}}{z_i^{\alpha_{i}} + x_{i}^{\alpha_{i}}} 
 - \sum_{j \neq i} A_{ij} (\delta_{ij}x_i - \delta_{ji}x_j)$$
 
-Notice that the second term can be factorized and extract $\delta_{ij}$ in matrix form and simply multiply by the difference $(x_i - x_j)$.
+Notice that the second term can be factorized and extract $\delta_{ij}$ in
+matrix form and simply multiply by the difference $(x_i - x_j)$.
 
 ```{r}
 
@@ -75,19 +104,21 @@ yini <- runif(n, 5, 20)
 #))
 
 ```
+
 Model with no connections:
 
 ```{r warning = FALSE, message = FALSE}
 df <- out %>% as_tibble() %>%
-    gather(key = "species", value = "population", 2:last_col())
+  gather(key = "species", value = "population", 2:last_col())
 
-df %>%
-    ggplot(aes(x=time, y=population)) +
-    geom_line(aes(color = species), size = 0.25, show.legend = T) + 
-    theme_light()
+g1 <- df %>%
+  ggplot(aes(x=time, y=population)) +
+  geom_line(aes(color = species), size = 0.25, show.legend = T) + 
+  labs(tag = "A") + ylim(c(0,20)) +
+  theme_light()
 ```
 
-Connected model: 
+Connected model:
 
 ```{r warning = FALSE, message = FALSE}
 ## set up flux matrix
@@ -106,14 +137,34 @@ out <- ode(
 
 
 df <- out %>% as_tibble() %>%
-    gather(key = "species", value = "population", 2:last_col())
+  gather(key = "species", value = "population", 2:last_col())
 
-df %>%
-    ggplot(aes(x=time, y=population)) +
-    geom_line(aes(color = species), size = 0.25, show.legend = T) + 
-    theme_light()
+g2 <- df %>%
+  ggplot(aes(x=time, y=population)) +
+  geom_line(aes(color = species), size = 0.25, show.legend = T) + 
+  labs(tag = "B") + ylim(c(0,20)) +
+  theme_light()
 ```
+The model with connections change the final equilibrium, but all systems converge. Note that how equilibria is changed depends on network structure, but the matrix $A_{ij}$ is computed at random every time I re-run the notebook.
 
+```{r simple-model, fig.cap="A simple pollution model with 4 subsistems, first unconnected (A), and then connected (B) following the network structure in (C).", message=FALSE, warning=FALSE}
+## plot the network
+
+net <- network::network(A_ij, directed = T)
+
+p1 <- ggnetwork(net) %>%
+  ggplot() + 
+  geom_edges(
+    aes(x = x,y = y,xend = xend,yend = yend), color = "gray50", size = 0.1,
+    arrow = arrow(length = unit(0.15, "lines"), type = "closed"),
+    curvature = 0.1) +
+  geom_nodes(aes(x =x,y = y, color = as.factor(vertex.names)), 
+             size = 2, show.legend = FALSE ) +
+  labs(tag= "C") +
+  theme_void()
+
+g1 + g2 + p1 + plot_layout(guides = "collect")
+```
 
 
 ## Normalized model:
@@ -122,7 +173,11 @@ $$
 \frac{dX_i}{d\tau} =U_i-S_iX_i+V_i\frac{X_i^{\alpha_i}}{1+X_i^{\alpha_i}}+\sum_{j\not=i}\Delta_{ij}(Z_{ij}X_j-X_i)
 $$
 
-Let $r$ denote the time difference between $t$ and $\tau$, $X_i=\frac{x_i}{z_i}$, $\frac{dt}{d\tau}=\frac{1}{r}$, $U_i=\frac{u_i}{rz_i}$, $S_i=\frac{S_i}{r}$ $V_i=\frac{v_i}{rz_i}$, $Z_{ij}=\frac{\delta_{ji}z_j}{\delta_{ij}z_i}$ and $\Delta_{ij}=\frac{\delta_{ij}}{r}$. 
+Let $r$ denote the time difference between $t$ and $\tau$,
+$X_i=\frac{x_i}{z_i}$, $\frac{dt}{d\tau}=\frac{1}{r}$, $U_i=\frac{u_i}{rz_i}$,
+$S_i=\frac{S_i}{r}$ $V_i=\frac{v_i}{rz_i}$,
+$Z_{ij}=\frac{\delta_{ji}z_j}{\delta_{ij}z_i}$ and
+$\Delta_{ij}=\frac{\delta_{ij}}{r}$.
 
 ```{r}
 # Zetify <- function(D,z) {
@@ -139,7 +194,6 @@ Let $r$ denote the time difference between $t$ and $\tau$, $X_i=\frac{x_i}{z_i}$
 # }
 ```
 
-
 ```{r}
 # test
 # with(params, Zetify(delta_ij, z))
@@ -150,6 +204,7 @@ Let $r$ denote the time difference between $t$ and $\tau$, $X_i=\frac{x_i}{z_i}$
 # # so it's not equivalent to vector matrix multiplication. But it is equivalent to the expression below, except the diagonal.
 # with(params, t(delta_ij * z)) / with(params, (delta_ij) * z) == with(params, Zetify(delta_ij, z))
 ```
+
 ```{r}
 # little profiling:
 # library(tictoc)
@@ -163,7 +218,6 @@ Let $r$ denote the time difference between $t$ and $\tau$, $X_i=\frac{x_i}{z_i}$
 
 # equally fast :)
 ```
-
 
 ```{r warning = FALSE, message = FALSE}
 ## Pollution model
@@ -196,16 +250,21 @@ pollution_norm <- function(t, y, params){
   })
 }
 
-params <- list(
-  r = rep(1, n),                  # scaling parameter
-  u = rep(1.5, n),              # pollution load from humans
-  s = rep(0.4, n),              # internal loss rate (sedimentation)
-  v = rep(2, n),                # max level of internal nutrient release
-  z = runif(n, min = 2, max = 8),        # threshold
-  alpha = 4 ,                   # sharpness of the shift
-  delta_ij = delta_ij,          # matrix of difussion terms
-  A_ij = A_ij                   # adjacency matrix
-)
+## To make them comparable I need to keep the same parameters.
+# params <- list(
+#   r = rep(1, n),                # scaling parameter
+#   u = rep(1.5, n),              # pollution load from humans
+#   s = rep(0.4, n),              # internal loss rate (sedimentation)
+#   v = rep(2, n),                # max level of internal nutrient release
+#   z = runif(n, min = 2, max = 8),        # threshold
+#   alpha = 4 ,                   # sharpness of the shift
+#   delta_ij = delta_ij,          # matrix of difussion terms
+#   A_ij = A_ij                   # adjacency matrix
+# )
+params$r <- rep(1, n)         # scaling parameter
+
+## set up time steps
+times <- seq(from = 0, to = 200, by = 0.01)
 
 ## run the model
 out <- ode(
@@ -216,23 +275,30 @@ out <- ode(
 
 
 df <- out %>% as_tibble() %>%
-    gather(key = "species", value = "population", 2:last_col())
+  gather(key = "species", value = "population", 2:last_col())
 
-df %>%
-    ggplot(aes(x=time, y=population)) +
-    geom_line(aes(color = species), size = 0.25, show.legend = T) + 
-    theme_light()
+g3 <- df %>%
+  ggplot(aes(x=time, y=population)) +
+  geom_line(aes(color = species), size = 0.25, show.legend = T) + 
+  labs(tag = "A")+
+  theme_light()
 
+g3 + g2 + p1 + plot_layout(guides = "collect")
 ```
+
+When systems are connected it takes longer to reach equilibrium in the normalized version. Here (A) shows the normalized model, (B) shows the previous model without normalization, and (C) is the same network structure.
+
 
 ## To-do:
 
-1. Systems without connections: Now with a working model, update and change some parameters.
-```{r warning=FALSE, message=FALSE}
+1.  Systems without connections: Now with a working model, update and change
+    some parameters.
+
+```{r warning=FALSE, message=FALSE, fig.cap="Previous normalized model (A) and same system without connections (B) and network structure (C)"}
 # delta_ij # old delta_ij used in previous runs
 ## Turn-off the connection
 #params$delta_ij <- matrix(rep(0, n^2), n, n)
-params$Aij <- matrix(rep(0, n^2), n, n)
+params$A_ij <- matrix(rep(0, n^2), n, n)
 
 ## run the model
 out <- ode(
@@ -242,29 +308,33 @@ out <- ode(
 )
 
 
-out %>% as_tibble() %>%
-    gather(key = "system", value = "pollutant", 2:last_col()) %>%
-    ggplot(aes(x=time, y=pollutant)) +
-    geom_line(aes(color = system), size = 0.25, show.legend = T) + 
-    theme_light()
+g4 <- out %>% as_tibble() %>%
+  gather(key = "system", value = "pollutant", 2:last_col()) %>%
+  ggplot(aes(x=time, y=pollutant)) +
+  geom_line(aes(color = system), size = 0.25, show.legend = T) + 
+  labs(tag = "B") +
+  theme_light()
+
+g3 + g4  + plot_layout(guides = "collect")
 ```
 
+Previous normalized model (A) and same system without connections (B). It takes longer in the normalized model to reach equilibrum.
 
+2.  Systems with connections (max 10)
 
-2. Systems with connections (max 10)
-
-I first update N to 10 and create initial conditions for all systems. For comparison I run a model without connection, and then turn on difussion. 
+I first update N to 10 and create initial conditions for all systems. For
+comparison I run a model without connection, and then turn on diffusion.
 
 ```{r warning=FALSE, message=FALSE}
 ## I need to update all parameters then:
 ## set up flux matrix
 n <- 10
 #delta_ij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
-delta_ij <- matrix(rep(0,n^2), ncol = n) # turn off difussion
+delta_ij <- matrix(rep(0,n^2), ncol = n) # turn off diffusion
 diag(delta_ij) <- 0
 A_ij <- matrix(rbinom(n^2, 1, prob = 0.3), n, n)
 diag(A_ij) <- 0
-## Parameters: use rep() if the value is the same, or runif() ir meant to be different across systems
+## Parameters: use rep() if the value is the same, or runif() if meant to be different across systems
 params <- list(
   r = rep(1, n),
     u = rep(1.5, n),              # pollution load from humans
@@ -293,11 +363,14 @@ out %>% as_tibble() %>%
     theme_light()
 ```
 
-Note that currently the $\delta_{ij}$ matrix has low diffusion coefficients (2-5%) but all lakes are connected to each other. To better control structure, one should multiply the difussion coefficents to a [0,1] adjacency matrix, so one gets control of structure on a term by itself.
+Note that currently the $\delta_{ij}$ matrix has low diffusion coefficients
+(2-5%) but all lakes are connected to each other. To better control structure,
+one should multiply the difussion coefficents to a [0,1] adjacency matrix, so
+one gets control of structure on a term by itself [feature added].
 
 ```{r warning = FALSE, message=FALSE}
 ## get a erdos-renyi random graph
-Aij <- igraph::sample_gnp(n, 0.2, TRUE) %>% 
+A_ij <- igraph::sample_gnp(n, 0.2, TRUE) %>% 
   igraph::as_adjacency_matrix(graph = .) %>% 
   as.matrix()
 
@@ -337,14 +410,15 @@ p1 <- ggnetwork(net) %>%
   geom_nodes(aes(x =x,y = y, color = as.factor(vertex.names)), size = 2, show.legend = FALSE ) +
   theme_void(base_size = 4)
   
-
+p1
 ```
 
+3.  Scenario when Z_ij \> 1 vs. Z_ij \< 1
 
-
-3. Scenario when Z_ij > 1 vs. Z_ij < 1
-
-Because $Z_{ij}=\frac{\delta_{ji}z_j}{\delta_{ij}z_i}$ and $z_i = z_j$, the only way to control $Z$ in a way that it becomes >1 or <1 depends on $\delta_{i,j}$. The matrix needs to be created with the upper triangle > lower triangle or viceversa.
+Because $Z_{ij}=\frac{\delta_{ji}z_j}{\delta_{ij}z_i}$ and $z_i = z_j$, the only
+way to control $Z$ in a way that it becomes \>1 or \<1 depends on
+$\delta_{i,j}$. The matrix needs to be created with the upper triangle \> lower
+triangle or viceversa.
 
 ```{r warning = FALSE, message=FALSE}
 ## This makes sure that Z_ij > 1
@@ -361,7 +435,7 @@ out <- ode(
   events=list(func = posfun, time = times)
 )
 
-## This makes sure that Z_ij > 1
+## This makes sure that Z_ij < 1
 delta_ij <- matrix(0, ncol = n, nrow = n)
 delta_ij[upper.tri(delta_ij) ] <-  0.05
 delta_ij[lower.tri(delta_ij) ]<- 0.02
@@ -394,28 +468,24 @@ p2 <- full_join(out,out2) %>%
 ```
 
 ```{r}
-library(patchwork)
 
 p2 + p1 + plot_layout(width = c(2,1)) 
 
-ggsave("figure_Z_comparison.png", width = 5, height = 2, units = "in", dpi = 800)
+#ggsave("figure_Z_comparison.png", width = 5, height = 2, units = "in", dpi = 800)
 ```
 
-
-
-
-
-
-However, not all $Z_{ij}$ are >1 or < 1. 
+However, not all $Z_{ij}$ are \>1 or \< 1. This particular run it is, but depending on the network it might not be true.
 
 ```{r}
 zmat <- with(params, delta_ij * z)
 (t(zmat)/zmat) > 1
 ```
 
-The reason for that is that it depends also of $z_i$ on the original equation. The only way to control for that is to constructing $z$ by hand, or making it the same for all systems.
+The reason for that is that it depends also of $z_i$ on the original equation.
+The only way to control for that is to constructing $z$ by hand, or making it
+the same for all systems.
 
-4. Scenario when $\Delta_ij > 1$ versus $\Delta_{ij} < 1$
+4.  Scenario when $\Delta_ij > 1$ versus $\Delta_{ij} < 1$
 
 ```{r warning = FALSE, message=FALSE}
 ## reset delta_ij
@@ -462,143 +532,13 @@ full_join(out,out2) %>%
     theme_light()
 ```
 
-5. Test for structural stability before running simulations
-6. Repeat for resource system.
-7. Set up controlling experiments
+5.  Test for structural stability before running simulations
+6.  ~~Repeat for resource system.~~
+7.  Set up controlling experiments
 
-Notes after meeting with ASC: 
+Notes after meeting with ASC:
 
-* fix the $A_{ij}$, the model was not updated [done]
-* extract results and create a graph with scenarios when Z and Delta are >1<
-* phase diagrams X vs U?
-
-### phase diagrams
-
-The only way to change $X$ is through $x_i$, same with $U$ and $u_i$. To better understand the param space where the bifurcation occurs, I need first to model individual systems. So back to the basic model.
-
-```{r}
-## set up flux matrix
-n <- 10
-#delta_ij <- matrix(runif(n^2, min = 0.02, max = 0.05), ncol = n)
-delta_ij <- matrix(rep(0,n^2), ncol = n) # turn off difussion terms
-diag(delta_ij) <- 0
-A_ij <- matrix(0, n, n) # no connections
-diag(A_ij) <- 0
-## Parameters: use rep() if the value is the same, or runif() ir meant to be different across systems
-params <- list(
-    u = seq.int(0.5,10,length.out = n),              # pollution load from humans
-    s = rep(0.7, n),              # internal loss rate (sedimentation)
-    v = rep(5, n),               # max level of internal nutrient release
-    z = rep(4, n),                # threshold, same for all
-    alpha = 4 ,                   # sharpness of the shift
-    delta_ij = delta_ij,          # matrix of difussion terms
-    A_ij = A_ij                   # adjacency matrix
-)
-
-## set up time steps
-times <- seq(from = 0, to = 100, by = 0.01)
-
-## initial conditions: more systematic
-yini <- seq.int(from =0.5,to=5, length.out = n)
-
-## run the model
-print(system.time(
-    out <- ode(
-      y = yini, times = times,  func = pollution, parms = params,
-      method = "bdf" , ## see help("ode") for more methods
-      events=list(func = posfun, time = times)
-    )
-))
-
-df <- out %>% as_tibble() %>%
-    gather(key = "species", value = "population", 2:last_col())
-
-df %>%
-    ggplot(aes(x=time, y=population)) +
-    geom_line(aes(color = species), size = 0.25, show.legend = T) + 
-  scale_x_log10() +
-    theme_light()
-```
-What are sensible values?
-
-```{r}
-## small dataframe
-df <- tibble( x = rep(0:12, 3))
-## components of the function, with and without diffusion
-pollutant <- function(x) {  v * (x^alpha/(z^alpha + x^alpha))}  ## Original model formulated by ASC
-management <- function(x){ -u + s*x } ## now the diffusion term is in the management line.
-management_diffusion <- function(x){ - ((0.01 * x) - (0.05 * x)) - u + (s*x)} ## now the diffusion term is in the management line.
-
-#parameter selection:
-#params <- list(
-    u = 0.5                # pollution load from humans
-    s = 0.7              # internal loss rate (sedimentation)
-    v = 5               # max level of internal nutrient release
-    z = 4                # threshold, same for all
-    alpha = 4            # sharpness of the shift
-    delta_ij = delta_ij  # matrix of difussion terms
-    A_ij = A_ij          # adjacency matrix
-# )
-## plot
-ggplot(data = df, aes(x)) +
-  #stat_function(fun = pollutant, color = "blue", linetype = 2) +
-  stat_function(fun = pollutant, color = "orange") +
-  stat_function(fun = management_diffusion, color = "purple") +
-  stat_function(fun = management, color = "dodgerblue") +
-  geom_hline(yintercept = 0, color = "gray") + 
-  labs(x = "y", y = "f(y)") +
-  theme_light()
-```
-
-```{r}
-## phase diagram attempt:
-
-u <- seq.int(from =0.5,to=10, length.out = 10)
-x_0 <- seq.int(from =0.5,to=10, length.out = 10)
-
-df_sims <- expand.grid(u, x_0) %>%
-  rename(u = Var1, x_0 = Var2)
-
-sims <- list()
-
-sims <- map2(
-  df_sims$u, df_sims$x_0,
-  function(x,y){
-    params$u <- x
-    yini <- y
-    out <- ode(
-      y = yini, times = times,  func = pollution, parms = params,
-      method = "bdf" , ## see help("ode") for more methods
-      events=list(func = posfun, time = times))
-    return(out)
-  }
-)
-
-```
-
-```{r}
-l <- length(sims)
-sims <- sims %>%
-  map(function(x)  {x %>% as_tibble() %>%
-    gather(key = "species", value = "population", 2:last_col())}) %>%
-  map2(., df_sims$u, function(x,y) {
-    x$u <- y
-    return(x)}) %>%
-  map2(., .y=seq(from =1, to =l,by =1), .f = function(x,y) {
-    x$id <- y 
-    return(x)}) %>%
-  bind_rows()
-  
-```
-
-```{r}
-sims %>%
-  map_df(as.numeric) %>%
-  group_by(id) %>%
-  mutate(pop_lag = lag(population)) %>%
-  ggplot(aes(population, pop_lag)) +
-  geom_path(aes(color = u, group = id), size = 0.5) +
-  theme_light()
-
-```
+-   ~~fix the $A_{ij}$, the model was not updated~~ [done]
+-   ~~extract results and create a graph with scenarios when Z and Delta are \>1 or \< 1~~ [done]
+-   phase diagrams X vs U?
 
